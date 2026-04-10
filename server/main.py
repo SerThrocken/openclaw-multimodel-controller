@@ -38,7 +38,7 @@ from config import CLOUD_BACKENDS, BackendType, config
 import backends.lmstudio as lmstudio_backend
 import backends.ollama as ollama_backend
 import backends.cloud as cloud_backend
-from routes import chat, models, settings as settings_route, conversations as conversations_route
+from routes import chat, models, settings as settings_route, conversations as conversations_route, pro_route as pro_route
 
 _UI_HTML = Path(__file__).parent / "ui" / "web.html"
 
@@ -132,6 +132,7 @@ app.include_router(chat.router, dependencies=[Depends(verify_token)])
 app.include_router(models.router, dependencies=[Depends(verify_token)])
 app.include_router(settings_route.router, dependencies=[Depends(verify_token)])
 app.include_router(conversations_route.router, dependencies=[Depends(verify_token)])
+app.include_router(pro_route.router, dependencies=[Depends(verify_token)])
 
 
 # ---------------------------------------------------------------------------

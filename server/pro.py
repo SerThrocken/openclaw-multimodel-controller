@@ -34,6 +34,10 @@ PATREON_URL = (
 
 FREE_CONVERSATION_LIMIT = 25
 
+# Live-session limits for the free tier
+FREE_LIVE_EXCHANGES   = 5    # voice/text exchanges per browser session
+FREE_TTS_CHAR_LIMIT   = 200  # characters spoken aloud per response
+
 
 def is_pro() -> bool:
     """Return True when a valid pro.json exists in the server directory."""
@@ -48,6 +52,8 @@ def pro_info() -> dict:
             "supporter_name": None,
             "patreon_url": PATREON_URL,
             "free_conversation_limit": FREE_CONVERSATION_LIMIT,
+            "free_live_exchanges":     FREE_LIVE_EXCHANGES,
+            "free_tts_char_limit":     FREE_TTS_CHAR_LIMIT,
         }
     try:
         data = json.loads(PRO_PATH.read_text(encoding="utf-8"))
@@ -58,6 +64,8 @@ def pro_info() -> dict:
         "supporter_name": data.get("name") or None,
         "patreon_url": PATREON_URL,
         "free_conversation_limit": FREE_CONVERSATION_LIMIT,
+        "free_live_exchanges":     FREE_LIVE_EXCHANGES,
+        "free_tts_char_limit":     FREE_TTS_CHAR_LIMIT,
     }
 
 

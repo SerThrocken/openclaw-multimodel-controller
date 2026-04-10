@@ -39,6 +39,8 @@ out/
 server/config.json
 # Locally saved chat conversations
 server/conversations.json
+# Pro tier activation file
+server/pro.json
 
 # Python cache
 __pycache__/
