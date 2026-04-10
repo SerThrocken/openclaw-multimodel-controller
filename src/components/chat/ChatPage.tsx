@@ -5,7 +5,7 @@ import type { Message } from '../../types';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Send, Plus, Bot, User, ChevronDown,
-  AlertCircle, Loader2, MessageSquarePlus, X,
+  AlertCircle, Loader2, MessageSquarePlus, X, Star,
 } from 'lucide-react';
 import { getProviderTemplate } from '../../providers/templates';
 
@@ -40,6 +40,7 @@ export const ChatPage: React.FC = () => {
     getActiveConversation,
     addMessage,
     updateMessage,
+    toggleStarMessage,
     settings,
   } = useStore();
 
@@ -206,6 +207,9 @@ export const ChatPage: React.FC = () => {
                       style={{ backgroundColor: prov?.color || '#6b7280' }}
                     />
                     <span className="text-xs truncate flex-1">{conv.title}</span>
+                    {conv.messages.some((m) => m.starred) && (
+                      <Star size={10} className="shrink-0 fill-amber-400 text-amber-400" />
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
                       className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 transition-all"
@@ -309,7 +313,13 @@ export const ChatPage: React.FC = () => {
             </div>
           ) : (
             activeConversation.messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} showTimestamp={settings.showTimestamps} fontSize={settings.fontSize} />
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                showTimestamp={settings.showTimestamps}
+                fontSize={settings.fontSize}
+                onStar={(id) => toggleStarMessage(activeConversation.id, id)}
+              />
             ))
           )}
           <div ref={messagesEndRef} />
@@ -352,9 +362,16 @@ export const ChatPage: React.FC = () => {
               </button>
             )}
           </div>
-          <p className="text-slate-600 text-xs text-center mt-1.5">
-            AI responses may be inaccurate. Verify important information.
-          </p>
+          <div className="flex items-center justify-between max-w-4xl mx-auto mt-1.5 px-1">
+            <span className="text-slate-600 text-xs">
+              ~{Math.ceil(
+                (activeConversation?.messages.reduce((a, m) => a + m.content.length, 0) ?? 0) / 4
+              )} tokens
+            </span>
+            <p className="text-slate-600 text-xs">
+              AI responses may be inaccurate. Verify important information.
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -365,12 +382,18 @@ const MessageBubble: React.FC<{
   message: Message;
   showTimestamp: boolean;
   fontSize: 'sm' | 'md' | 'lg';
-}> = ({ message, showTimestamp, fontSize }) => {
+  onStar?: (messageId: string) => void;
+}> = ({ message, showTimestamp, fontSize, onStar }) => {
   const isUser = message.role === 'user';
   const fontClass = fontSize === 'sm' ? 'text-xs' : fontSize === 'lg' ? 'text-base' : 'text-sm';
+  const [hovered, setHovered] = useState(false);
 
   return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div
+      className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {/* Avatar */}
       <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center ${
         isUser ? 'bg-blue-600' : 'bg-slate-700'
@@ -407,11 +430,25 @@ const MessageBubble: React.FC<{
           )}
         </div>
 
-        {showTimestamp && (
-          <span className="text-xs text-slate-600 px-1">
-            {new Date(message.timestamp).toLocaleTimeString()}
-          </span>
-        )}
+        {/* Actions row */}
+        <div className={`flex items-center gap-1 px-1 ${isUser ? 'flex-row-reverse' : ''}`}>
+          {showTimestamp && (
+            <span className="text-xs text-slate-600">
+              {new Date(message.timestamp).toLocaleTimeString()}
+            </span>
+          )}
+          {!isUser && onStar && (
+            <button
+              onClick={() => onStar(message.id)}
+              className={`p-0.5 transition-all ${
+                hovered || message.starred ? 'opacity-100' : 'opacity-0'
+              } ${message.starred ? 'text-amber-400' : 'text-slate-500 hover:text-amber-400'}`}
+              title={message.starred ? 'Unstar' : 'Star message'}
+            >
+              <Star size={13} className={message.starred ? 'fill-amber-400' : ''} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

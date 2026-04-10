@@ -33,6 +33,7 @@ export interface Message {
   providerName?: string;
   error?: boolean;
   loading?: boolean;
+  starred?: boolean;
 }
 
 export interface Conversation {
@@ -42,15 +43,26 @@ export interface Conversation {
   messages: Message[];
   createdAt: string;
   updatedAt: string;
+  tags?: string[];
+}
+
+export interface SystemPromptPreset {
+  id: string;
+  name: string;
+  prompt: string;
+  createdAt: string;
 }
 
 export interface AppSettings {
-  theme: 'dark' | 'light' | 'system';
+  theme: 'dark' | 'light' | 'system' | 'oled' | 'solarized' | 'forest' | 'ocean';
   defaultProviderId?: string;
   sendOnEnter: boolean;
   showTimestamps: boolean;
   fontSize: 'sm' | 'md' | 'lg';
   streamResponses: boolean;
+  density: 'compact' | 'cozy' | 'comfortable';
+  isPro: boolean;
+  accentColor?: string;
 }
 
 export interface ProviderTemplate {

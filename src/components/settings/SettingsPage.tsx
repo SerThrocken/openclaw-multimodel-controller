@@ -1,9 +1,47 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../../store';
-import { Moon, Sun, Monitor, Info } from 'lucide-react';
+import { Info, Trash2, Plus, Lock } from 'lucide-react';
+
+const PATREON_URL =
+  'https://patreon.com/TLG3D?utm_medium=unknown&utm_source=join_link&utm_campaign=creatorshare_creator&utm_content=copyLink';
+
+const THEMES = [
+  { id: 'dark', label: 'Dark', dot: '#1e293b', proOnly: false },
+  { id: 'light', label: 'Light', dot: '#f1f5f9', proOnly: true },
+  { id: 'oled', label: 'OLED', dot: '#000000', proOnly: true },
+  { id: 'solarized', label: 'Solarized', dot: '#657b83', proOnly: true },
+  { id: 'forest', label: 'Forest', dot: '#2d6a4f', proOnly: true },
+  { id: 'ocean', label: 'Ocean', dot: '#023e8a', proOnly: true },
+] as const;
+
+const PRO_FEATURES = [
+  'Unlimited saved conversations (free: 25)',
+  'Bulk export all chats as .zip',
+  'Extra themes (OLED black, solarized, forest, ocean)',
+  'Unlimited system-prompt presets (free: 1)',
+  'Full-text search across saved chats',
+  'Usage dashboard & statistics',
+  'Message starring & reactions',
+  'Conversation tags & folders',
+  'Priority issue reporting',
+  'Name in SUPPORTERS file (opt-in)',
+  '🌟 Pro badge in the sidebar',
+];
 
 export const SettingsPage: React.FC = () => {
-  const { settings, updateSettings, providers, conversations } = useStore();
+  const {
+    settings,
+    updateSettings,
+    providers,
+    conversations,
+    systemPromptPresets,
+    addPreset,
+    deletePreset,
+  } = useStore();
+
+  const [showAddPreset, setShowAddPreset] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [presetPrompt, setPresetPrompt] = useState('');
 
   const stats = {
     providers: providers.length,
@@ -11,6 +49,16 @@ export const SettingsPage: React.FC = () => {
     conversations: conversations.length,
     messages: conversations.reduce((acc, c) => acc + c.messages.length, 0),
   };
+
+  const handleAddPreset = () => {
+    if (!presetName.trim() || !presetPrompt.trim()) return;
+    addPreset(presetName.trim(), presetPrompt.trim());
+    setPresetName('');
+    setPresetPrompt('');
+    setShowAddPreset(false);
+  };
+
+  const canAddPreset = settings.isPro || systemPromptPresets.length < 1;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -20,36 +68,76 @@ export const SettingsPage: React.FC = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-8 max-w-2xl">
+
         {/* Appearance */}
         <section>
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Appearance</h2>
-
           <div className="space-y-4">
+
+            {/* Theme */}
             <div>
               <label className="block text-sm text-white mb-2">Theme</label>
-              <div className="flex gap-2">
-                {(['dark', 'light', 'system'] as const).map((theme) => {
-                  const Icon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor;
+              <div className="flex flex-wrap gap-2">
+                {THEMES.map((theme) => {
+                  const locked = theme.proOnly && !settings.isPro;
                   return (
                     <button
-                      key={theme}
-                      onClick={() => updateSettings({ theme })}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm border transition-colors capitalize ${
-                        settings.theme === theme
+                      key={theme.id}
+                      onClick={() => {
+                        if (locked) return;
+                        updateSettings({ theme: theme.id });
+                      }}
+                      title={locked ? '🔒 Pro only' : theme.label}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm border transition-colors ${
+                        settings.theme === theme.id
                           ? 'bg-blue-600 border-blue-600 text-white'
+                          : locked
+                          ? 'bg-slate-800 border-slate-700 text-slate-500 cursor-not-allowed'
                           : 'bg-slate-800 border-slate-600 text-slate-400 hover:border-slate-500 hover:text-white'
                       }`}
                     >
-                      <Icon size={14} /> {theme}
+                      <span
+                        className="w-3 h-3 rounded-full border border-slate-600 shrink-0"
+                        style={{ backgroundColor: theme.dot }}
+                      />
+                      {locked ? <Lock size={12} className="mr-0.5" /> : null}
+                      {theme.label}
                     </button>
                   );
                 })}
               </div>
-              <p className="text-slate-500 text-xs mt-1">
-                Note: Full light/system theme requires restart. App currently uses dark theme.
-              </p>
+              {!settings.isPro && (
+                <p className="text-slate-500 text-xs mt-1">
+                  🔒 Extra themes unlocked with{' '}
+                  <a href={PATREON_URL} target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline">
+                    Pro
+                  </a>
+                  . App currently uses dark theme.
+                </p>
+              )}
             </div>
 
+            {/* Density */}
+            <div>
+              <label className="block text-sm text-white mb-2">Density</label>
+              <div className="flex gap-2">
+                {(['compact', 'cozy', 'comfortable'] as const).map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => updateSettings({ density: d })}
+                    className={`px-4 py-2 rounded-lg text-sm border transition-colors capitalize ${
+                      settings.density === d
+                        ? 'bg-blue-600 border-blue-600 text-white'
+                        : 'bg-slate-800 border-slate-600 text-slate-400 hover:border-slate-500 hover:text-white'
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Font size */}
             <div>
               <label className="block text-sm text-white mb-2">Font Size</label>
               <div className="flex gap-2">
@@ -74,7 +162,6 @@ export const SettingsPage: React.FC = () => {
         {/* Chat */}
         <section>
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Chat</h2>
-
           <div className="space-y-3">
             <ToggleSetting
               label="Send on Enter"
@@ -91,22 +178,166 @@ export const SettingsPage: React.FC = () => {
           </div>
         </section>
 
+        {/* System Prompt Presets */}
+        <section>
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">System Prompt Presets</h2>
+          <div className="space-y-2">
+            {systemPromptPresets.length === 0 && (
+              <p className="text-slate-500 text-xs">No presets saved yet.</p>
+            )}
+            {systemPromptPresets.map((preset) => (
+              <div
+                key={preset.id}
+                className="flex items-start gap-3 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-white font-medium">{preset.name}</div>
+                  <div className="text-xs text-slate-400 mt-0.5 truncate">{preset.prompt}</div>
+                </div>
+                <button
+                  onClick={() => deletePreset(preset.id)}
+                  className="p-1 text-slate-500 hover:text-red-400 transition-colors shrink-0"
+                  title="Delete preset"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+
+            {canAddPreset ? (
+              showAddPreset ? (
+                <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-3">
+                  <input
+                    type="text"
+                    value={presetName}
+                    onChange={(e) => setPresetName(e.target.value)}
+                    placeholder="Preset name"
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                  <textarea
+                    value={presetPrompt}
+                    onChange={(e) => setPresetPrompt(e.target.value)}
+                    placeholder="System prompt text…"
+                    rows={3}
+                    className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAddPreset}
+                      disabled={!presetName.trim() || !presetPrompt.trim()}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm rounded-lg transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => { setShowAddPreset(false); setPresetName(''); setPresetPrompt(''); }}
+                      className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAddPreset(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 border-dashed text-slate-400 hover:text-white text-sm rounded-xl transition-colors"
+                >
+                  <Plus size={14} /> Add Preset
+                </button>
+              )
+            ) : (
+              <p className="text-xs text-amber-400">
+                🔒 Unlock unlimited presets with{' '}
+                <a href={PATREON_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-300">
+                  Pro
+                </a>
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* Pro */}
+        <section>
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">🌟 Pro</h2>
+          {settings.isPro ? (
+            <div className="border border-green-500/40 bg-green-900/10 rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-green-400 text-lg">🌟</span>
+                <p className="text-green-300 font-semibold text-sm">Pro Active — Thank you for supporting OpenClaw!</p>
+              </div>
+              <p className="text-slate-400 text-xs">Verified via Patreon donation</p>
+              <button
+                onClick={() => updateSettings({ isPro: false })}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded-lg transition-colors"
+              >
+                Deactivate Pro
+              </button>
+            </div>
+          ) : (
+            <div className="border border-amber-500/40 bg-amber-900/10 rounded-xl p-5 space-y-4">
+              <div>
+                <p className="text-amber-300 font-semibold text-base">🌟 OpenClaw Pro — Unlock the full experience</p>
+                <p className="text-slate-400 text-xs mt-1">A $2+/month Patreon donation unlocks all Pro features.</p>
+              </div>
+              <ul className="space-y-1.5">
+                {PRO_FEATURES.map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-xs text-slate-300">
+                    <span className="text-amber-400 shrink-0">✦</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <a
+                  href={PATREON_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  ❤ Support on Patreon
+                </a>
+                <button
+                  onClick={() => {
+                    updateSettings({ isPro: true });
+                    alert("🌟 Pro activated! Thank you so much for supporting OpenClaw. Every donation keeps the project alive.");
+                  }}
+                  className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded-lg transition-colors"
+                >
+                  I've donated — unlock Pro
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
         {/* Stats */}
         <section>
           <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Statistics</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: 'Connections', value: stats.providers },
-              { label: 'Active', value: stats.enabled },
-              { label: 'Chats', value: stats.conversations },
-              { label: 'Messages', value: stats.messages },
-            ].map((stat) => (
-              <div key={stat.label} className="bg-slate-800 rounded-xl p-4 text-center border border-slate-700">
-                <div className="text-2xl font-bold text-white">{stat.value}</div>
-                <div className="text-slate-400 text-xs mt-0.5">{stat.label}</div>
-              </div>
-            ))}
-          </div>
+          {settings.isPro ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Connections', value: stats.providers },
+                { label: 'Active', value: stats.enabled },
+                { label: 'Chats', value: stats.conversations },
+                { label: 'Messages', value: stats.messages },
+              ].map((stat) => (
+                <div key={stat.label} className="bg-slate-800 rounded-xl p-4 text-center border border-slate-700">
+                  <div className="text-2xl font-bold text-white">{stat.value}</div>
+                  <div className="text-slate-400 text-xs mt-0.5">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 text-center">
+              <p className="text-slate-400 text-sm">
+                🔒 Full statistics available with{' '}
+                <a href={PATREON_URL} target="_blank" rel="noopener noreferrer" className="text-amber-400 hover:underline">
+                  Pro
+                </a>
+              </p>
+              <p className="text-slate-500 text-xs mt-1">{stats.conversations} chats · {stats.messages} messages</p>
+            </div>
+          )}
         </section>
 
         {/* About */}
@@ -165,3 +396,4 @@ const ToggleSetting: React.FC<{
     </button>
   </div>
 );
+
