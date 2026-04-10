@@ -34,3 +34,15 @@ out/
 
 # Capacitor
 .capacitor/
+
+# OpenClaw runtime config — contains API keys; must never be committed
+server/config.json
+# Locally saved chat conversations
+server/conversations.json
+# Pro tier activation file
+server/pro.json
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

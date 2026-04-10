@@ -1,197 +1,255 @@
-# Openclaw MultiModel Controller
+# 🐾 OpenClaw — Multi-Model AI Controller
 
-A cross-platform AI chat controller that lets you connect to and converse with multiple AI providers from a single application. Available as a **Desktop app** (Windows / macOS / Linux via Electron) and an **Android APK** (via Capacitor).
+Connect your phone or any browser to **LM Studio**, **Ollama**, **OpenAI**, **Gemini**, **Perplexity**, or any OpenAI-compatible endpoint — locally or remotely.  No data collected.  Your keys stay on your PC.
+
+![OpenClaw chat screen](https://github.com/user-attachments/assets/0f917462-9286-4023-b7ea-f60772240952)
+
+---
+
+## How it works
+
+```
+Browser / Android App
+        │
+        │  HTTP  (local Wi-Fi  or  Tailscale encrypted tunnel)
+        ▼
+  OpenClaw Server        ← runs on your PC  (port 8080)
+        │
+        ├── LM Studio   (local,  port 1234)
+        ├── Ollama       (local,  port 11434)
+        ├── OpenAI       (cloud,  HTTPS)
+        ├── Gemini       (cloud,  HTTPS)
+        ├── Perplexity   (cloud,  HTTPS)
+        └── Custom       (any OpenAI-compatible URL)
+```
+
+OpenClaw is a lightweight Python server that proxies requests between your devices and whichever AI backend you choose. It also serves a **built-in web UI** that works in any browser — on your PC, phone, or tablet — with no extra installation required.
 
 ---
 
 ## Features
 
-- **Multiple AI providers** – OpenAI, Claude (Anthropic), Google Gemini, Perplexity, Ollama (local), OpenRouter, and any OpenAI-compatible endpoint.
-- **Conversation history** – Persisted across sessions with per-provider colour-coded threads.
-- **Provider management** – Add, edit, enable/disable, and test connections from the Connections tab.
-- **Configurable per connection** – System prompt, temperature, max tokens, and accent colour per provider.
-- **Settings** – Theme, font size, send-on-Enter toggle, and timestamp display.
-- **CORS bypass in Electron** – AI requests are proxied through the main process so no browser CORS issues.
+- **Chat from any device** — built-in web UI at `http://<pc-ip>:8080` from any browser on your network
+- **Android APK** — native mobile app built with React Native / Expo
+- **6 backends** — LM Studio, Ollama, OpenAI, Gemini, Perplexity, or any custom OpenAI-compatible URL
+- **Remote access via Tailscale** — connect from anywhere, fully encrypted, no port forwarding
+- **Optional saved conversations** — explicitly save any chat to local storage on your PC; load or delete from the History tab on any device
+- **Auto-detect** — switches to the available local backend automatically on startup
+- **Model selection** — browse and switch models without restarting
+- **Streaming** — real-time token streaming in both the web UI and Android app
+- **Optional auth token** — Bearer-token security for LAN and remote access
+- **System tray icon** — optional GUI-less control on Windows/macOS/Linux
+- **No data collection** — no telemetry, no cloud sync, no account required
+- **API keys stay on your PC** — keys are stored locally, never returned by the API, never logged
 
 ---
 
-## Prerequisites
+## Quick Start
 
-| Requirement | Version |
-|---|---|
-| Node.js | 18 or later |
-| npm | 9 or later |
-| Android Studio *(Android build only)* | Latest stable |
-| Java JDK *(Android build only)* | 17 or later |
+### 1. Install an AI backend
+
+**Local (runs on your PC):**
+
+| Backend | Download | Default port |
+|---------|----------|-------------|
+| LM Studio | [lmstudio.ai](https://lmstudio.ai) | `1234` |
+| Ollama | [ollama.com](https://ollama.com) | `11434` |
+
+**Cloud (requires an API key):**
+
+| Provider | Keys |
+|----------|------|
+| OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| Google Gemini | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) |
+| Perplexity | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) |
+| Custom endpoint | Any OpenAI-compatible URL |
+
+### 2. Start the OpenClaw server
+
+**Windows** — double-click `start.bat`
+
+**macOS / Linux:**
+```bash
+./start.sh
+```
+
+The terminal will show:
+```
+[openclaw] ✓ Active backend : lmstudio
+[openclaw] Web UI available at http://0.0.0.0:8080/
+```
+
+### 3. Open the web UI
+
+- **On this PC:** open `http://localhost:8080` in your browser
+- **On your phone (LAN):** open `http://<your-pc-ip>:8080`
+- **Anywhere (Tailscale):** open `http://<tailscale-ip>:8080`
+
+> Find your PC's IP: run `ipconfig` (Windows) or `ip a` (Linux/macOS).
+
+### 4. Select a backend and model
+
+Go to **⚙️ Settings**, choose your backend, enter an API key if using a cloud provider, click **Save**, then go to **📦 Models** to pick a model.
 
 ---
 
-## Getting Started (Development)
+## Android APK
+
+For a native mobile experience, build and install the Android app.
+
+**Requirements:** [Node.js 18+](https://nodejs.org) · [EAS CLI](https://docs.expo.dev/build/introduction/)
 
 ```bash
-# Install dependencies
+cd android
 npm install
-
-# Start the web dev server (browser preview at http://localhost:5173)
-npm run dev
-
-# Start the Electron desktop app in dev mode (hot-reload)
-npm run electron:dev
+npm install -g eas-cli
+eas login
+npm run build:apk      # builds a downloadable .apk via EAS Build
 ```
 
----
+After installing the APK, open the app → **Settings** → enter your PC's IP address → **Test Connection**.
 
-## Building
-
-### Desktop (Electron)
-
-```bash
-# Build the web bundle, then package the desktop app
-npm run electron:build
-```
-
-Packaged installers are written to the `dist/` folder:
-
-| Platform | Output |
-|---|---|
-| Windows | `dist/*.exe` (NSIS installer) |
-| macOS | `dist/*.dmg` |
-| Linux | `dist/*.AppImage` |
-
-### Android (Capacitor)
-
-```bash
-# 1. Build the web bundle
-npm run build
-
-# 2. Sync the bundle into the Android project
-npm run cap:sync
-
-# 3. Open in Android Studio to build / run on device
-npm run cap:open:android
-```
-
-> **First-time setup only:** if the `android/` folder does not yet exist, run `npm run cap:add:android` once before the steps above.
+→ Full instructions in the [Setup Guide](docs/setup.md)
 
 ---
 
-## Supported AI Providers
-
-| Provider | Requires API Key | Default Model | Get API Key |
-|---|---|---|---|
-| **OpenAI** | Yes | `gpt-4o` | [platform.openai.com](https://platform.openai.com/api-keys) |
-| **Claude (Anthropic)** | Yes | `claude-opus-4-5` | [console.anthropic.com](https://console.anthropic.com/) |
-| **Google Gemini** | Yes | `gemini-2.0-flash` | [aistudio.google.com](https://aistudio.google.com/app/apikey) |
-| **Perplexity** | Yes | `llama-3.1-sonar-large-128k-online` | [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api) |
-| **Ollama (Local)** | No | `llama3.2` | N/A – install [Ollama](https://ollama.com) locally |
-| **OpenRouter** | Yes | `openai/gpt-4o` | [openrouter.ai/keys](https://openrouter.ai/keys) |
-| **Custom / OpenAI-compatible** | Optional | `default` | Depends on your endpoint |
-
----
-
-## Using the Application
-
-### 1 – Add an AI Connection
-
-1. Open the **Connections** tab (plug icon in the bottom navigation).
-2. Click **Add Connection**.
-3. Select a provider type from the grid.
-4. Fill in the required fields:
-   - **Name** – A friendly label for this connection.
-   - **API Key** – Your provider API key (not required for Ollama or custom endpoints without auth).
-   - **Base URL** – Pre-filled with the provider's default; change only if you use a proxy or self-hosted instance.
-   - **Model** – Choose from the dropdown or type a custom model name.
-5. Expand **Advanced Settings** to optionally set:
-   - **System Prompt** – Custom instructions prepended to every conversation.
-   - **Temperature** – Controls response creativity (0 = deterministic, 2 = very creative). Default: `0.7`.
-   - **Max Tokens** – Maximum length of the model's reply. Default: `2048`.
-   - **Color** – Accent colour used to identify this connection throughout the UI.
-6. Click **Add Connection** to save.
-
-To verify a connection is working, expand its card and click **Test Connection**.
-
-### 2 – Chat
-
-1. Open the **Chat** tab (message icon in the bottom navigation).
-2. If you have more than one enabled provider, use the provider selector in the chat header to choose which model to talk to.
-3. Type your message in the input box and press **Enter** (or **Shift+Enter** for a new line when *Send on Enter* is enabled).
-4. Click the **Stop** button (red × icon) to cancel a response mid-generation.
-5. Use the sidebar on the left to switch between past conversations or click **New Chat** to start a fresh thread.
-6. Hover over a conversation in the sidebar and click the × icon to delete it.
-
-### 3 – Manage Connections
-
-From the **Connections** tab you can:
-
-- **Enable / Disable** a connection with the toggle button – disabled connections are hidden from the chat provider selector.
-- **Edit** a connection to update its API key, model, or advanced settings.
-- **Delete** a connection (also removes all associated conversations).
-- **Test** a connection to send a quick ping and verify it responds correctly.
-
-### 4 – Settings
-
-Open the **Settings** tab to customise the application:
-
-| Setting | Options | Default |
-|---|---|---|
-| Theme | Dark / Light / System | Dark |
-| Font Size | Small / Medium / Large | Medium |
-| Send on Enter | On / Off | On |
-| Show Timestamps | On / Off | Off |
-
-> The **Statistics** section at the bottom shows a live count of your connections, active connections, conversations, and total messages.
-
----
-
-## Project Structure
+## Repository Structure
 
 ```
 openclaw-multimodel-controller/
-├── electron/               # Electron main & preload scripts
-│   ├── main.cjs            # Main process (window creation, IPC, CORS proxy)
-│   └── preload.cjs         # Exposes safe IPC bridge to the renderer
-├── public/                 # Static assets (icon, etc.)
-├── src/
-│   ├── components/
-│   │   ├── chat/           # Chat page and message bubble components
-│   │   ├── connections/    # Connections page and provider form
-│   │   ├── layout/         # App shell / navigation layout
-│   │   └── settings/       # Settings page
-│   ├── providers/
-│   │   ├── api.ts          # Sends messages to each provider's API
-│   │   └── templates.ts    # Provider metadata (URLs, models, colours)
-│   ├── store/              # Zustand global state (providers, conversations, settings)
-│   ├── types/              # TypeScript type definitions
-│   ├── App.tsx             # Route definitions
-│   └── main.tsx            # React entry point
-├── capacitor.config.ts     # Capacitor (Android) configuration
-├── vite.config.ts          # Vite build configuration
-└── package.json
+│
+├── server/                  # Python / FastAPI PC server
+│   ├── main.py              # Entry point — run this
+│   ├── config.py            # Settings model, persisted to config.json
+│   ├── requirements.txt     # Python dependencies
+│   ├── backends/
+│   │   ├── lmstudio.py      # LM Studio API client
+│   │   ├── ollama.py        # Ollama API client
+│   │   └── cloud.py         # OpenAI / Gemini / Perplexity / Custom client
+│   ├── routes/
+│   │   ├── chat.py          # POST /chat/completions
+│   │   ├── models.py        # GET  /models
+│   │   └── settings.py      # GET/POST /settings
+│   └── ui/
+│       ├── web.html         # Built-in web chat UI (served at /)
+│       └── tray.py          # System tray icon (optional)
+│
+├── android/                 # React Native / Expo Android app
+│   ├── App.tsx              # Navigation entry point
+│   ├── src/
+│   │   ├── api/client.ts    # HTTP client for the OpenClaw server
+│   │   ├── store/settings.ts# AsyncStorage settings persistence
+│   │   └── screens/
+│   │       ├── ChatScreen.tsx
+│   │       ├── ModelsScreen.tsx
+│   │       └── SettingsScreen.tsx
+│   ├── app.json             # Expo config
+│   └── eas.json             # EAS Build config
+│
+├── docs/
+│   ├── setup.md             # Complete setup guide
+│   ├── tailscale-guide.md   # Remote access via Tailscale
+│   ├── cloud-services-guide.md  # OpenAI / Gemini / Perplexity / Custom
+│   ├── privacy.md           # Privacy & security reference
+│   ├── lmstudio-guide.md    # LM Studio specific guide
+│   ├── ollama-guide.md      # Ollama specific guide
+│   └── screenshots/         # UI screenshots
+│
+├── start.sh                 # Linux / macOS quick-start script
+└── start.bat                # Windows quick-start script
 ```
 
 ---
 
-## Scripts Reference
+## Server API Reference
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Start the Vite dev server (browser) |
-| `npm run build` | Build the production web bundle |
-| `npm run lint` | Run ESLint |
-| `npm run preview` | Preview the production build in a browser |
-| `npm run electron:dev` | Run the Electron app in development mode |
-| `npm run electron:build` | Build and package the Electron desktop app |
-| `npm run cap:sync` | Sync the web build into the Capacitor Android project |
-| `npm run cap:open:android` | Open the Android project in Android Studio |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/conversations` | Optional | List saved conversations (summaries, no messages) |
+| `GET` | `/conversations/{id}` | Optional | Load a saved conversation with full messages |
+| `POST` | `/conversations` | Optional | Save a conversation |
+| `DELETE` | `/conversations/{id}` | Optional | Delete a saved conversation |
+| `GET` | `/health` | No | Server status + backend availability |
+| `GET` | `/models` | Optional | List models from the active backend |
+| `POST` | `/chat/completions` | Optional | OpenAI-compatible chat endpoint |
+| `GET` | `/settings` | Optional | Read current configuration (API keys never returned) |
+| `POST` | `/settings` | Optional | Update configuration at runtime |
+| `GET` | `/` | No | Built-in web UI |
+| `GET` | `/docs` | No | Interactive API documentation |
+
+### Example — chat request
+
+```bash
+curl http://localhost:8080/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama3",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+### Example — switch to OpenAI backend
+
+```bash
+curl -X POST http://localhost:8080/settings \
+  -H "Content-Type: application/json" \
+  -d '{"backend": "openai", "openai_api_key": "sk-..."}'
+```
 
 ---
 
-## Data Storage
+## Configuration
 
-All provider credentials, conversation history, and settings are stored locally using **localStorage** (browser/Android) or Electron's equivalent persistent storage. No data is sent to any server other than the AI provider APIs you configure.
+Settings are stored in `server/config.json` on your PC and can be changed via the web UI, Android app, or API.  This file is gitignored and set to owner-read-only — it is never committed or shared.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `backend` | `lmstudio` | Active backend (`lmstudio`, `ollama`, `openai`, `gemini`, `perplexity`, `custom`) |
+| `lmstudio_host` | `localhost` | LM Studio hostname |
+| `lmstudio_port` | `1234` | LM Studio port |
+| `ollama_host` | `localhost` | Ollama hostname |
+| `ollama_port` | `11434` | Ollama port |
+| `openai_api_key` | `null` | OpenAI API key (write-only via API) |
+| `gemini_api_key` | `null` | Gemini API key (write-only via API) |
+| `perplexity_api_key` | `null` | Perplexity API key (write-only via API) |
+| `custom_base_url` | `null` | Base URL for custom OpenAI-compatible endpoint |
+| `custom_api_key` | `null` | API key for custom endpoint (write-only via API) |
+| `custom_name` | `Custom` | Display label for custom provider |
+| `bind_host` | `0.0.0.0` | OpenClaw server bind address |
+| `bind_port` | `8080` | OpenClaw server port |
+| `auth_token` | `null` | Optional Bearer token for LAN/remote security |
+| `active_model` | `null` | Currently selected model |
+
+---
+
+## Privacy
+
+- **No data collection** — OpenClaw never contacts any external server on its own.
+- **Local storage only** — settings and API keys are saved in `server/config.json` on your PC, with owner-only file permissions.
+- **API keys are write-only** — `GET /settings` returns boolean key-set indicators, never actual key values.
+- **No telemetry** — no usage data is collected or transmitted.
+- **Open source** — every network call is auditable in the source code.
+
+→ Full details: [Privacy & Security](docs/privacy.md)
+
+---
+
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Setup Guide](docs/setup.md) | Complete installation and configuration walkthrough |
+| [Tailscale Guide](docs/tailscale-guide.md) | Connect remotely from anywhere |
+| [Cloud Services Guide](docs/cloud-services-guide.md) | OpenAI, Gemini, Perplexity, Custom endpoints |
+| [Privacy & Security](docs/privacy.md) | What is stored, what is transmitted, security measures |
+| [LM Studio Guide](docs/lmstudio-guide.md) | LM Studio specific setup |
+| [Ollama Guide](docs/ollama-guide.md) | Ollama specific setup |
+| Interactive API docs | `http://localhost:8080/docs` (once server is running) |
+
+> **Saving chats:** in the web UI, click **💾 Save** on the Chat tab to keep a conversation.  View, load, and delete saved chats from the **📂 History** tab on any device.
 
 ---
 
 ## License
 
-This project is private. See [LICENSE](LICENSE) if present.
+See [LICENSE](LICENSE).
