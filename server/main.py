@@ -2,15 +2,19 @@
 OpenClaw Multi-Model Controller — PC Server
 ===========================================
 
-Entry point.  Starts a FastAPI/Uvicorn server that proxies AI inference
-requests from the Android client to either LM Studio or Ollama running
-locally on the same PC.
+Entry point.  Starts a FastAPI/Uvicorn server that:
+
+  * Proxies AI inference requests to LM Studio or Ollama running locally.
+  * Serves a built-in web chat UI at http://localhost:8080  so the app
+    works in any browser on PC *or* on a mobile phone browser over LAN —
+    no Android APK required for basic usage.
+  * Optionally shows a system-tray icon (--tray) for GUI-less control.
 
 Usage
 -----
     python main.py [--host 0.0.0.0] [--port 8080] [--tray]
-
-The --tray flag launches a system tray icon for GUI-less control.
+    python main.py --backend ollama --port 8080
+    python main.py --token mysecret   # enable Bearer-token auth
 """
 
 from __future__ import annotations
@@ -19,15 +23,53 @@ import argparse
 import asyncio
 import sys
 import threading
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
 
 from config import config
 import backends.lmstudio as lmstudio_backend
 import backends.ollama as ollama_backend
 from routes import chat, models, settings as settings_route
+
+_UI_HTML = Path(__file__).parent / "ui" / "web.html"
+
+
+# ---------------------------------------------------------------------------
+# Lifespan — replaces the deprecated @app.on_event("startup")
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Auto-detect available backends on startup."""
+    lm_ok = await lmstudio_backend.health_check()
+    ol_ok = await ollama_backend.health_check()
+
+    if not lm_ok and not ol_ok:
+        print("[openclaw] WARNING: Neither LM Studio nor Ollama is reachable.")
+        print("           Start one of them before sending chat requests.")
+    else:
+        # If the configured backend is unreachable but the other one is, switch.
+        if config.backend.value == "lmstudio" and not lm_ok and ol_ok:
+            config.backend = config.backend.__class__("ollama")
+            config.save()
+            print("[openclaw] LM Studio not found — switched to Ollama automatically.")
+        elif config.backend.value == "ollama" and not ol_ok and lm_ok:
+            config.backend = config.backend.__class__("lmstudio")
+            config.save()
+            print("[openclaw] Ollama not found — switched to LM Studio automatically.")
+
+        print(f"[openclaw] ✓ Active backend : {config.backend.value}")
+        print(f"[openclaw]   LM Studio      : {'✓' if lm_ok else '✗'}")
+        print(f"[openclaw]   Ollama         : {'✓' if ol_ok else '✗'}")
+
+    print(f"[openclaw] Web UI available at http://{config.bind_host}:{config.bind_port}/")
+    yield  # application runs here
+
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -36,13 +78,14 @@ from routes import chat, models, settings as settings_route
 app = FastAPI(
     title="OpenClaw Multi-Model Controller",
     description=(
-        "Local-network proxy that routes Android AI requests to either "
+        "Local-network proxy that routes browser/Android AI requests to either "
         "LM Studio or Ollama running on the same PC."
     ),
     version="1.0.0",
+    lifespan=lifespan,
 )
 
-# CORS — allow the Android/web client on any origin within the LAN
+# CORS — allow any origin on the LAN (Android app + browser on other devices)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -68,7 +111,7 @@ async def verify_token(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Routers
+# Routers (protected by optional token auth)
 # ---------------------------------------------------------------------------
 
 app.include_router(chat.router, dependencies=[Depends(verify_token)])
@@ -77,7 +120,7 @@ app.include_router(settings_route.router, dependencies=[Depends(verify_token)])
 
 
 # ---------------------------------------------------------------------------
-# Health / discovery endpoint  (no auth required so Android can ping easily)
+# Health / discovery endpoint  (no auth — Android/browser can ping freely)
 # ---------------------------------------------------------------------------
 
 @app.get("/health")
@@ -94,33 +137,19 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
-# Startup: auto-detect available backends
+# Built-in web UI — served at "/"
+# Works in any browser: PC (localhost) or mobile phone (via LAN IP).
 # ---------------------------------------------------------------------------
 
-@app.on_event("startup")
-async def auto_detect_backend():
-    lm_ok = await lmstudio_backend.health_check()
-    ol_ok = await ollama_backend.health_check()
-
-    if not lm_ok and not ol_ok:
-        print("[openclaw] WARNING: Neither LM Studio nor Ollama is reachable.")
-        print("           Start one before sending requests.")
-        return
-
-    # If the configured backend is unavailable but the other one is, switch.
-    if config.backend.value == "lmstudio" and not lm_ok and ol_ok:
-        config.backend = config.backend.__class__("ollama")
-        config.save()
-        print("[openclaw] LM Studio not found — switched to Ollama automatically.")
-    elif config.backend.value == "ollama" and not ol_ok and lm_ok:
-        config.backend = config.backend.__class__("lmstudio")
-        config.save()
-        print("[openclaw] Ollama not found — switched to LM Studio automatically.")
-
-    status = "✓" if (lm_ok or ol_ok) else "✗"
-    print(f"[openclaw] {status} Active backend: {config.backend.value}")
-    print(f"[openclaw]   LM Studio reachable : {lm_ok}")
-    print(f"[openclaw]   Ollama reachable    : {ol_ok}")
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def web_ui():
+    if _UI_HTML.exists():
+        return FileResponse(_UI_HTML, media_type="text/html")
+    return HTMLResponse(
+        "<h2>OpenClaw server is running.</h2>"
+        "<p>The web UI file (<code>ui/web.html</code>) was not found.</p>"
+        "<p>See the <a href='/docs'>API docs</a> for direct API access.</p>"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>OpenClaw — Local AI Controller</title>
+  <style>
+    /* ── Reset & variables ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #1a1a2e;
+      --surface: #16213e;
+      --border:  #2a2a4e;
+      --blue:    #4a90d9;
+      --green:   #4caf50;
+      --red:     #f44336;
+      --text:    #e0e0e0;
+      --muted:   #a0a0b0;
+      --radius:  10px;
+      --font:    system-ui, -apple-system, sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────────────── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    header h1 { font-size: 18px; font-weight: 700; }
+
+    #backend-badge {
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(74,144,217,.2);
+      color: var(--blue);
+    }
+
+    #model-label {
+      flex: 1;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ── Tab nav ───────────────────────────────────────────────────────── */
+    #tab-bar {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 11px 0;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+    }
+
+    .tab-btn.active {
+      color: var(--blue);
+      border-bottom-color: var(--blue);
+    }
+
+    /* ── Panels ────────────────────────────────────────────────────────── */
+    .panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+    .panel.active { display: flex; }
+
+    /* ── Chat panel ────────────────────────────────────────────────────── */
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .bubble {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: var(--radius);
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .bubble.user   { align-self: flex-end; background: var(--blue); color: #fff; }
+    .bubble.assistant { align-self: flex-start; background: var(--surface); color: var(--text); }
+    .bubble.error  { align-self: flex-start; background: rgba(244,67,54,.15); color: var(--red); }
+
+    #chat-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: var(--muted);
+    }
+
+    #chat-empty .emoji { font-size: 48px; }
+    #chat-empty h2 { color: var(--text); font-size: 18px; }
+
+    #chat-input-bar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #chat-input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 10px 16px;
+      color: var(--text);
+      font-size: 15px;
+      font-family: var(--font);
+      resize: none;
+      max-height: 120px;
+      overflow-y: auto;
+      line-height: 1.4;
+    }
+
+    #chat-input:focus { outline: none; border-color: var(--blue); }
+
+    #send-btn {
+      width: 42px; height: 42px;
+      border-radius: 50%;
+      background: var(--blue);
+      border: none;
+      color: #fff;
+      font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: opacity .15s;
+      align-self: flex-end;
+    }
+
+    #send-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ── Models panel ──────────────────────────────────────────────────── */
+    #models-panel {
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    .panel-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .refresh-btn {
+      background: none;
+      border: 1px solid var(--blue);
+      color: var(--blue);
+      padding: 5px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .model-item {
+      display: flex;
+      align-items: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+
+    .model-item:hover { border-color: var(--blue); }
+    .model-item.selected { border-color: var(--blue); }
+
+    .model-item .model-name {
+      flex: 1;
+      font-weight: 600;
+    }
+
+    .model-item.selected .model-name { color: var(--blue); }
+    .model-checkmark { color: var(--blue); font-size: 18px; font-weight: 700; }
+
+    /* ── Settings panel ────────────────────────────────────────────────── */
+    #settings-panel { overflow-y: auto; padding: 16px 14px 32px; }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 22px;
+      margin-bottom: 10px;
+    }
+
+    .form-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      margin-top: 12px;
+      display: block;
+    }
+
+    .form-input {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 15px;
+      font-family: var(--font);
+    }
+
+    .form-input:focus { outline: none; border-color: var(--blue); }
+
+    .backend-row { display: flex; gap: 10px; margin-top: 8px; }
+
+    .backend-btn {
+      flex: 1;
+      padding: 11px 0;
+      border-radius: 8px;
+      border: 2px solid var(--border);
+      background: none;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color .15s, color .15s, background .15s;
+    }
+
+    .backend-btn.active {
+      border-color: var(--blue);
+      color: var(--blue);
+      background: rgba(74,144,217,.1);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 13px;
+      border-radius: 8px;
+      border: none;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 18px;
+      transition: opacity .15s;
+    }
+
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-outline  { background: none; border: 1px solid var(--blue); color: var(--blue); }
+
+    #status-box {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.6;
+      display: none;
+    }
+
+    #status-box.ok  { background: rgba(76,175,80,.15); color: var(--green); display: block; }
+    #status-box.err { background: rgba(244,67,54,.15);  color: var(--red);   display: block; }
+
+    /* ── Spinner ───────────────────────────────────────────────────────── */
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Misc ──────────────────────────────────────────────────────────── */
+    .muted { color: var(--muted); font-size: 13px; }
+
+    @media (min-width: 600px) {
+      header h1 { font-size: 20px; }
+      .bubble { max-width: 68%; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ─────────────────────────────────────────────────────── -->
+  <header>
+    <h1>🐾 OpenClaw</h1>
+    <span id="backend-badge">—</span>
+    <span id="model-label">no model selected</span>
+    <button class="refresh-btn" onclick="clearChat()" title="Clear chat">✕ Clear</button>
+  </header>
+
+  <!-- ── Tab bar ───────────────────────────────────────────────────── -->
+  <div id="tab-bar">
+    <button class="tab-btn active" onclick="showTab('chat')">💬 Chat</button>
+    <button class="tab-btn" onclick="showTab('models')">📦 Models</button>
+    <button class="tab-btn" onclick="showTab('settings')">⚙️ Settings</button>
+  </div>
+
+  <!-- ── Chat panel ────────────────────────────────────────────────── -->
+  <div id="chat-panel" class="panel active">
+    <div id="chat-messages">
+      <div id="chat-empty">
+        <div class="emoji">🤖</div>
+        <h2>Start a conversation</h2>
+        <p class="muted">Running locally — fully private.</p>
+      </div>
+    </div>
+    <div id="chat-input-bar">
+      <textarea
+        id="chat-input"
+        rows="1"
+        placeholder="Type a message…"
+        onkeydown="handleKey(event)"
+        oninput="autoResize(this)"
+      ></textarea>
+      <button id="send-btn" onclick="sendMessage()" disabled title="Send">▲</button>
+    </div>
+  </div>
+
+  <!-- ── Models panel ──────────────────────────────────────────────── -->
+  <div id="models-panel" class="panel">
+    <div style="padding:12px">
+      <div class="panel-toolbar">
+        <span class="muted" id="models-backend-label">—</span>
+        <button class="refresh-btn" onclick="loadModels()">↻ Refresh</button>
+      </div>
+      <div id="models-list"><p class="muted">Loading models…</p></div>
+    </div>
+  </div>
+
+  <!-- ── Settings panel ────────────────────────────────────────────── -->
+  <div id="settings-panel" class="panel">
+
+    <div class="section-title">🔌 Backend</div>
+
+    <div class="backend-row">
+      <button class="backend-btn active" id="btn-lmstudio" onclick="selectBackend('lmstudio')">
+        LM Studio
+      </button>
+      <button class="backend-btn" id="btn-ollama" onclick="selectBackend('ollama')">
+        Ollama
+      </button>
+    </div>
+
+    <div class="section-title">🌐 LM Studio Connection</div>
+    <label class="form-label">Host</label>
+    <input class="form-input" id="lmstudio-host" value="localhost" />
+    <label class="form-label">Port</label>
+    <input class="form-input" id="lmstudio-port" value="1234" type="number" />
+
+    <div class="section-title">🦙 Ollama Connection</div>
+    <label class="form-label">Host</label>
+    <input class="form-input" id="ollama-host" value="localhost" />
+    <label class="form-label">Port</label>
+    <input class="form-input" id="ollama-port" value="11434" type="number" />
+
+    <div class="section-title">🔐 Security</div>
+    <label class="form-label">Auth Token (optional — leave blank to disable)</label>
+    <input class="form-input" id="auth-token" type="password" placeholder="Enter token or leave blank" />
+
+    <button class="btn btn-outline" onclick="testConnection()">🔍 Test Connection</button>
+    <div id="status-box"></div>
+    <button class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>
+
+  </div>
+
+</div><!-- #app -->
+
+<script>
+/* ── State ──────────────────────────────────────────────────────────── */
+const state = {
+  backend: 'lmstudio',
+  activeModel: '',
+  messages: [],        // {role, content}
+  streaming: false,
+};
+
+/* ── Tab switching ──────────────────────────────────────────────────── */
+function showTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    const names = ['chat', 'models', 'settings'];
+    b.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => {
+    p.classList.toggle('active', p.id === name + '-panel');
+  });
+  if (name === 'models') loadModels();
+  if (name === 'settings') loadSettingsFromServer();
+}
+
+/* ── Headers for API calls ──────────────────────────────────────────── */
+function apiHeaders() {
+  const token = document.getElementById('auth-token').value.trim();
+  const h = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+
+/* ── Chat ────────────────────────────────────────────────────────────── */
+const chatMessages = document.getElementById('chat-messages');
+const chatEmpty    = document.getElementById('chat-empty');
+const chatInput    = document.getElementById('chat-input');
+const sendBtn      = document.getElementById('send-btn');
+
+chatInput.addEventListener('input', () => {
+  sendBtn.disabled = chatInput.value.trim() === '' || state.streaming;
+});
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function clearChat() {
+  state.messages = [];
+  chatMessages.innerHTML = '';
+  chatMessages.appendChild(chatEmpty);
+  chatEmpty.style.display = 'flex';
+}
+
+function appendBubble(role, content) {
+  chatEmpty.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'bubble ' + role;
+  div.textContent = content;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+async function sendMessage() {
+  const text = chatInput.value.trim();
+  if (!text || state.streaming) return;
+
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  sendBtn.disabled = true;
+
+  state.messages.push({ role: 'user', content: text });
+  appendBubble('user', text);
+
+  const assistantBubble = appendBubble('assistant', '▌');
+  state.streaming = true;
+
+  const payload = {
+    model: state.activeModel || undefined,
+    messages: state.messages.slice(),
+    stream: true,
+  };
+
+  try {
+    const resp = await fetch('/chat/completions', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      assistantBubble.className = 'bubble error';
+      assistantBubble.textContent = 'Error ' + resp.status + ': ' + err;
+      state.streaming = false;
+      sendBtn.disabled = false;
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let full = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const chunk = JSON.parse(data);
+          const delta = chunk?.choices?.[0]?.delta?.content ?? '';
+          if (delta) {
+            full += delta;
+            assistantBubble.textContent = full;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (!full) full = assistantBubble.textContent.replace(/▌$/, '');
+    assistantBubble.textContent = full;
+    state.messages.push({ role: 'assistant', content: full });
+
+  } catch (e) {
+    assistantBubble.className = 'bubble error';
+    assistantBubble.textContent = 'Connection error: ' + e.message;
+  }
+
+  state.streaming = false;
+  sendBtn.disabled = chatInput.value.trim() === '';
+}
+
+/* ── Models ─────────────────────────────────────────────────────────── */
+async function loadModels() {
+  const list = document.getElementById('models-list');
+  list.innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    const resp = await fetch('/models', { headers: apiHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const models = data.data || [];
+    document.getElementById('models-backend-label').textContent =
+      (state.backend === 'lmstudio' ? 'LM Studio' : 'Ollama') +
+      ' — ' + models.length + ' model' + (models.length !== 1 ? 's' : '');
+    if (models.length === 0) {
+      list.innerHTML = '<p class="muted">No models found. Make sure your backend has at least one model loaded.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const m of models) {
+      const item = document.createElement('div');
+      item.className = 'model-item' + (m.id === state.activeModel ? ' selected' : '');
+      item.innerHTML =
+        '<span class="model-name">' + escapeHtml(m.id) + '</span>' +
+        (m.id === state.activeModel ? '<span class="model-checkmark">✓</span>' : '');
+      item.onclick = () => selectModel(m.id);
+      list.appendChild(item);
+    }
+  } catch (e) {
+    list.innerHTML = '<p style="color:var(--red)">Failed to load models: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+async function selectModel(id) {
+  state.activeModel = id;
+  document.getElementById('model-label').textContent = id;
+  // Persist to server
+  try {
+    await fetch('/settings', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({ active_model: id }),
+    });
+  } catch (_) {}
+  // Refresh list to show checkmark
+  loadModels();
+}
+
+/* ── Settings ────────────────────────────────────────────────────────── */
+function selectBackend(b) {
+  state.backend = b;
+  document.getElementById('btn-lmstudio').classList.toggle('active', b === 'lmstudio');
+  document.getElementById('btn-ollama').classList.toggle('active', b === 'ollama');
+  document.getElementById('backend-badge').textContent = b === 'lmstudio' ? 'LM Studio' : 'Ollama';
+}
+
+async function loadSettingsFromServer() {
+  try {
+    const resp = await fetch('/settings', { headers: apiHeaders() });
+    if (!resp.ok) return;
+    const s = await resp.json();
+    selectBackend(s.backend);
+    document.getElementById('lmstudio-host').value = s.lmstudio_host || 'localhost';
+    document.getElementById('lmstudio-port').value = s.lmstudio_port || 1234;
+    document.getElementById('ollama-host').value   = s.ollama_host   || 'localhost';
+    document.getElementById('ollama-port').value   = s.ollama_port   || 11434;
+    if (s.active_model) {
+      state.activeModel = s.active_model;
+      document.getElementById('model-label').textContent = s.active_model;
+    }
+  } catch (_) {}
+}
+
+async function saveSettings() {
+  const payload = {
+    backend:        state.backend,
+    lmstudio_host:  document.getElementById('lmstudio-host').value.trim(),
+    lmstudio_port:  parseInt(document.getElementById('lmstudio-port').value, 10),
+    ollama_host:    document.getElementById('ollama-host').value.trim(),
+    ollama_port:    parseInt(document.getElementById('ollama-port').value, 10),
+    auth_token:     document.getElementById('auth-token').value.trim(),
+  };
+  try {
+    const resp = await fetch('/settings', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    showStatus('ok', '✓ Settings saved.');
+  } catch (e) {
+    showStatus('err', '✗ Failed to save: ' + e.message);
+  }
+}
+
+async function testConnection() {
+  showStatus('ok', '<span class="spinner"></span> Testing…');
+  try {
+    const resp = await fetch('/health');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const h = await resp.json();
+    const lm = h.lmstudio_available ? '✓' : '✗';
+    const ol = h.ollama_available   ? '✓' : '✗';
+    showStatus('ok',
+      '✓ Server reachable\n' +
+      'Active backend : ' + h.active_backend + '\n' +
+      'LM Studio      : ' + lm + '\n' +
+      'Ollama         : ' + ol +
+      (h.active_model ? '\nActive model   : ' + h.active_model : '')
+    );
+    selectBackend(h.active_backend);
+  } catch (e) {
+    showStatus('err', '✗ Connection failed: ' + e.message);
+  }
+}
+
+function showStatus(type, msg) {
+  const box = document.getElementById('status-box');
+  box.className = type;
+  box.style.whiteSpace = 'pre';
+  box.innerHTML = msg;
+}
+
+/* ── Helpers ────────────────────────────────────────────────────────── */
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/* ── Init ────────────────────────────────────────────────────────────── */
+(async function init() {
+  // Load server settings to populate UI immediately
+  await loadSettingsFromServer();
+  // Ping health to populate badge
+  try {
+    const resp = await fetch('/health');
+    if (resp.ok) {
+      const h = await resp.json();
+      selectBackend(h.active_backend);
+      document.getElementById('backend-badge').textContent =
+        h.active_backend === 'lmstudio' ? 'LM Studio' : 'Ollama';
+      if (h.active_model) {
+        state.activeModel = h.active_model;
+        document.getElementById('model-label').textContent = h.active_model;
+      }
+    }
+  } catch (_) {
+    document.getElementById('backend-badge').textContent = 'offline';
+  }
+})();
+</script>
+</body>
+</html>

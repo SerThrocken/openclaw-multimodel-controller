@@ -7,7 +7,7 @@ whichever backend (LM Studio or Ollama) is currently configured.
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException
