@@ -803,8 +803,41 @@
           onclick="toggleLiveCamera()">📷 Camera</button>
       </div>
 
-      <!-- start/stop button -->
-      <button id="live-start-btn" class="btn btn-primary"
+    <!-- resolution selector (all users — controls capture size / space used) -->
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <label style="font-size:11px;color:var(--muted);flex-shrink:0">📐 Resolution:</label>
+        <select id="live-res-select"
+          style="flex:1;min-width:160px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px"
+          onchange="setResolution(this.value)">
+          <option value="320x240">Tiny (320×240) — saves most space</option>
+          <option value="640x480">Low (640×480)</option>
+          <option value="1280x720" selected>HD (1280×720)</option>
+          <option value="1920x1080">Full HD (1920×1080)</option>
+          <option value="native">Native (camera max)</option>
+        </select>
+      </div>
+
+      <!-- zoom controls — Pro only, hidden until pro.active -->
+      <div id="zoom-controls"
+        style="display:none;align-items:center;gap:8px;flex-wrap:nowrap;">
+        <label style="font-size:11px;color:var(--muted);flex-shrink:0">🔍 Zoom:</label>
+        <button class="history-action-btn"
+          style="padding:3px 10px;font-size:17px;line-height:1"
+          onclick="adjustZoom(-0.5)">−</button>
+        <input id="zoom-slider" type="range" min="1" max="5" step="0.1" value="1"
+          style="flex:1;accent-color:var(--blue)"
+          oninput="setZoom(parseFloat(this.value))">
+        <span id="zoom-label"
+          style="font-size:12px;color:var(--muted);width:36px;text-align:right;flex-shrink:0">
+          1.0×
+        </span>
+        <button class="history-action-btn"
+          style="padding:3px 10px;font-size:17px;line-height:1"
+          onclick="adjustZoom(0.5)">+</button>
+        <button class="history-action-btn"
+          style="padding:3px 8px;font-size:11px" title="Reset zoom"
+          onclick="setZoom(1)">↺</button>
+      </div>
         onclick="toggleLiveSession()" style="margin-top:0">
         🎙 Start Live Session
       </button>
@@ -1002,8 +1035,1402 @@
 </div><!-- #app -->
 
 <script>
-/* ── State ──────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   OpenClaw — complete client-side logic
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Core state ─────────────────────────────────────────────────────────── */
 const state = {
+  backend:     'lmstudio',
+  activeModel: '',
+  customName:  'Custom',
+  apiKeySet:   {},
+  messages:    [],
+  streaming:   false,
+};
+const _apiKeyDirty = {};
+const CLOUD_BACKENDS = new Set(['openai','gemini','perplexity','custom']);
+const ALL_BACKENDS   = ['lmstudio','ollama','openai','gemini','perplexity','custom'];
+const BACKEND_LABELS = {
+  lmstudio:'LM Studio', ollama:'Ollama',
+  openai:'OpenAI', gemini:'Gemini', perplexity:'Perplexity',
+};
+
+/* ── Pro state ──────────────────────────────────────────────────────────── */
+const pro = {
+  active:        false,
+  patreonUrl:    '',
+  freeLimit:     25,
+  freeLiveLimit: 5,
+  freeTTSChars:  200,
+  supporterName: '',
+};
+
+/* ── Tab switching ──────────────────────────────────────────────────────── */
+function showTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const m = (b.getAttribute('onclick') || '').match(/showTab\('([^']+)'\)/);
+    b.classList.toggle('active', !!(m && m[1] === name));
+  });
+  document.querySelectorAll('.panel').forEach(p =>
+    p.classList.toggle('active', p.id === name + '-panel'));
+  const saveBtn = document.getElementById('save-chat-btn');
+  if (saveBtn) saveBtn.style.display = name === 'chat' ? '' : 'none';
+  const sysBtn = document.getElementById('sys-prompt-btn');
+  if (sysBtn)  sysBtn.style.display  = name === 'chat' ? '' : 'none';
+  if (name === 'models')   loadModels();
+  if (name === 'settings') loadSettingsFromServer();
+  if (name === 'history')  loadHistory();
+  if (name === 'stats')    loadStats();
+  if (name === 'live')     _initLiveLanguageSelector();
+}
+
+/* ── API headers ────────────────────────────────────────────────────────── */
+function apiHeaders() {
+  const token = document.getElementById('auth-token').value.trim();
+  const h = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+
+/* ── Chat ───────────────────────────────────────────────────────────────── */
+const chatMessages = document.getElementById('chat-messages');
+const chatEmpty    = document.getElementById('chat-empty');
+const chatInput    = document.getElementById('chat-input');
+const sendBtn      = document.getElementById('send-btn');
+
+chatInput.addEventListener('input', () => {
+  sendBtn.disabled = chatInput.value.trim() === '' || state.streaming;
+});
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+function clearChat() {
+  state.messages = [];
+  chatMessages.innerHTML = '';
+  chatMessages.appendChild(chatEmpty);
+  chatEmpty.style.display = 'flex';
+}
+
+function _msgText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const t = content.find(p => p && p.type === 'text');
+    return t ? t.text : '';
+  }
+  return '';
+}
+
+function appendBubble(role, content) {
+  chatEmpty.style.display = 'none';
+  const div = document.createElement('div');
+  div.className = 'bubble ' + role;
+  div.textContent = _msgText(content) || (Array.isArray(content) ? '[image message]' : String(content));
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+async function sendMessage() {
+  const text = chatInput.value.trim();
+  if (!text || state.streaming) return;
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+  sendBtn.disabled = true;
+
+  if (_compareActive) {
+    state.messages.push({ role: 'user', content: text });
+    await _sendCompareMessage(text);
+    state.streaming = false;
+    sendBtn.disabled = chatInput.value.trim() === '';
+    return;
+  }
+
+  state.messages.push({ role: 'user', content: text });
+  appendBubble('user', text);
+  const assistantBubble = appendBubble('assistant', '▌');
+  state.streaming = true;
+
+  const sysPrompt = getSystemPrompt();
+  const msgs = sysPrompt
+    ? [{ role: 'system', content: sysPrompt }, ...state.messages.slice()]
+    : state.messages.slice();
+  const payload = { model: state.activeModel || undefined, messages: msgs, stream: true };
+
+  try {
+    const resp = await fetch('/chat/completions', {
+      method: 'POST', headers: apiHeaders(), body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      assistantBubble.className = 'bubble error';
+      assistantBubble.textContent = 'Error ' + resp.status + ': ' + err;
+      state.streaming = false; sendBtn.disabled = false; return;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '', full = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
+        try {
+          const chunk = JSON.parse(data);
+          const delta = chunk?.choices?.[0]?.delta?.content ?? '';
+          if (delta) {
+            full += delta;
+            assistantBubble.textContent = full;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+          }
+        } catch (_) {}
+      }
+    }
+    if (!full) full = assistantBubble.textContent.replace(/▌$/, '');
+    assistantBubble.textContent = full;
+    state.messages.push({ role: 'assistant', content: full });
+  } catch (e) {
+    assistantBubble.className = 'bubble error';
+    assistantBubble.textContent = 'Connection error: ' + e.message;
+  }
+  state.streaming = false;
+  sendBtn.disabled = chatInput.value.trim() === '';
+}
+
+/* ── Models ─────────────────────────────────────────────────────────────── */
+async function loadModels() {
+  const list = document.getElementById('models-list');
+  list.innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    const resp = await fetch('/models', { headers: apiHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data   = await resp.json();
+    const models = data.data || [];
+    document.getElementById('models-backend-label').textContent =
+      (BACKEND_LABELS[state.backend] || state.backend) +
+      ' — ' + models.length + ' model' + (models.length !== 1 ? 's' : '');
+    if (!models.length) {
+      list.innerHTML = '<p class="muted">No models found. Make sure your backend has at least one model loaded.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    for (const m of models) {
+      const item = document.createElement('div');
+      item.className = 'model-item' + (m.id === state.activeModel ? ' selected' : '');
+      item.innerHTML =
+        '<span class="model-name">'  + escapeHtml(m.id) + '</span>' +
+        (m.id === state.activeModel ? '<span class="model-checkmark">✓</span>' : '');
+      item.onclick = () => selectModel(m.id);
+      list.appendChild(item);
+    }
+  } catch (e) {
+    list.innerHTML = '<p style="color:var(--red)">Failed: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+async function selectModel(id) {
+  state.activeModel = id;
+  document.getElementById('model-label').textContent = id;
+  try {
+    await fetch('/settings', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ active_model: id }),
+    });
+  } catch (_) {}
+  loadModels();
+}
+
+/* ── Settings ────────────────────────────────────────────────────────────── */
+function selectBackend(b) {
+  state.backend = b;
+  ALL_BACKENDS.forEach(id => {
+    const btn = document.getElementById('btn-' + id);
+    if (btn) btn.classList.toggle('active', id === b);
+  });
+  const label = b === 'custom' ? (state.customName || 'Custom') : (BACKEND_LABELS[b] || b);
+  document.getElementById('backend-badge').textContent = label;
+  document.getElementById('section-lmstudio').style.display      = b === 'lmstudio' ? '' : 'none';
+  document.getElementById('section-ollama').style.display        = b === 'ollama'   ? '' : 'none';
+  document.getElementById('section-cloud').style.display         = CLOUD_BACKENDS.has(b) ? '' : 'none';
+  document.getElementById('section-custom-fields').style.display = b === 'custom'   ? '' : 'none';
+  _updateApiKeyPlaceholder();
+}
+
+function _updateApiKeyPlaceholder() {
+  const field = document.getElementById('cloud-api-key');
+  if (!field) return;
+  const b = state.backend;
+  if (_apiKeyDirty[b]) return;
+  field.value = '';
+  field.placeholder = state.apiKeySet[b]
+    ? '••••• Key saved — enter a new key to replace it'
+    : 'Paste your API key here';
+}
+
+async function loadSettingsFromServer() {
+  try {
+    const resp = await fetch('/settings', { headers: apiHeaders() });
+    if (!resp.ok) return;
+    const s = await resp.json();
+    selectBackend(s.backend);
+    document.getElementById('lmstudio-host').value = s.lmstudio_host || 'localhost';
+    document.getElementById('lmstudio-port').value = s.lmstudio_port || 1234;
+    document.getElementById('ollama-host').value   = s.ollama_host   || 'localhost';
+    document.getElementById('ollama-port').value   = s.ollama_port   || 11434;
+    if (s.custom_base_url) document.getElementById('custom-base-url').value = s.custom_base_url;
+    if (s.custom_name) {
+      document.getElementById('custom-name').value = s.custom_name;
+      state.customName = s.custom_name;
+    }
+    state.apiKeySet = {
+      openai:     !!s.openai_api_key_set,
+      gemini:     !!s.gemini_api_key_set,
+      perplexity: !!s.perplexity_api_key_set,
+      custom:     !!s.custom_api_key_set,
+    };
+    ALL_BACKENDS.forEach(k => { _apiKeyDirty[k] = false; });
+    _updateApiKeyPlaceholder();
+    if (s.active_model) {
+      state.activeModel = s.active_model;
+      document.getElementById('model-label').textContent = s.active_model;
+    }
+  } catch (_) {}
+}
+
+async function saveSettings() {
+  const b = state.backend;
+  const payload = {
+    backend:       b,
+    lmstudio_host: document.getElementById('lmstudio-host').value.trim(),
+    lmstudio_port: parseInt(document.getElementById('lmstudio-port').value, 10),
+    ollama_host:   document.getElementById('ollama-host').value.trim(),
+    ollama_port:   parseInt(document.getElementById('ollama-port').value, 10),
+    auth_token:    document.getElementById('auth-token').value.trim(),
+  };
+  if (CLOUD_BACKENDS.has(b) && _apiKeyDirty[b])
+    payload[b + '_api_key'] = document.getElementById('cloud-api-key').value.trim();
+  if (b === 'custom') {
+    payload.custom_base_url = document.getElementById('custom-base-url').value.trim();
+    const cName = document.getElementById('custom-name').value.trim();
+    if (cName) { payload.custom_name = cName; state.customName = cName; }
+  }
+  try {
+    const resp = await fetch('/settings', {
+      method: 'POST', headers: apiHeaders(), body: JSON.stringify(payload),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const s = await resp.json();
+    state.apiKeySet = {
+      openai:     !!s.openai_api_key_set,
+      gemini:     !!s.gemini_api_key_set,
+      perplexity: !!s.perplexity_api_key_set,
+      custom:     !!s.custom_api_key_set,
+    };
+    ALL_BACKENDS.forEach(k => { _apiKeyDirty[k] = false; });
+    _updateApiKeyPlaceholder();
+    showStatus('ok', '✓ Settings saved.');
+  } catch (e) {
+    showStatus('err', '✗ Failed to save: ' + escapeHtml(e.message));
+  }
+}
+
+async function testConnection() {
+  showStatus('ok', '<span class="spinner"></span> Testing…');
+  try {
+    const resp = await fetch('/health');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const h       = await resp.json();
+    const lm      = h.lmstudio_available ? '✓' : '✗';
+    const ol      = h.ollama_available   ? '✓' : '✗';
+    const isCloud = CLOUD_BACKENDS.has(h.active_backend);
+    let msg = '✓ Server reachable\nActive backend : ' + escapeHtml(String(h.active_backend)) + '\n';
+    if (isCloud) msg += 'Cloud endpoint : ' + (h.cloud_available ? '✓ reachable' : '✗ unreachable') + '\n';
+    else         msg += 'LM Studio      : ' + lm + '\nOllama         : ' + ol + '\n';
+    if (h.active_model) msg += 'Active model   : ' + escapeHtml(String(h.active_model));
+    showStatus('ok', msg);
+    selectBackend(h.active_backend);
+  } catch (e) {
+    showStatus('err', '✗ Connection failed: ' + escapeHtml(e.message));
+  }
+}
+
+function showStatus(type, msg) {
+  const box = document.getElementById('status-box');
+  box.className = type; box.style.whiteSpace = 'pre'; box.innerHTML = msg;
+}
+
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _timeAgo(isoStr) {
+  if (!isoStr) return '';
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1)  return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return hrs + 'h ago';
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return days + 'd ago';
+  return Math.floor(days / 30) + 'mo ago';
+}
+
+/* ── Saved conversations ─────────────────────────────────────────────────── */
+async function saveChat() {
+  if (state.messages.length === 0) return;
+  const btn  = document.getElementById('save-chat-btn');
+  const orig = btn ? btn.textContent : '';
+  if (btn) btn.textContent = '💾 Saving…';
+
+  const firstUser = state.messages.find(m => m.role === 'user');
+  const rawTitle  = firstUser ? _msgText(firstUser.content) : 'Saved chat';
+  const title     = rawTitle.slice(0, 60) + (rawTitle.length > 60 ? '…' : '');
+  const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : Date.now().toString(36) + Math.random().toString(36).slice(2);
+
+  const payload = {
+    id, title,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    backend:  state.backend      || null,
+    model:    state.activeModel  || null,
+    messages: state.messages.slice(),
+  };
+
+  try {
+    const resp = await fetch('/conversations', {
+      method: 'POST', headers: apiHeaders(), body: JSON.stringify(payload),
+    });
+    if (resp.status === 403) {
+      const err = await resp.json().catch(() => ({}));
+      alert((err.detail || 'Free tier limit reached.') +
+        '\n\nGo to ⚙️ Settings → 🌟 Unlock OpenClaw Pro to save unlimited conversations.');
+      if (btn) btn.textContent = orig;
+      return;
+    }
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    if (btn) { btn.textContent = '✓ Saved'; setTimeout(() => { btn.textContent = orig; }, 2000); }
+  } catch (e) {
+    if (btn) { btn.textContent = '✗ Error'; setTimeout(() => { btn.textContent = orig; }, 2000); }
+  }
+}
+
+/* ── History panel ───────────────────────────────────────────────────────── */
+let _archiveMode   = false;
+let _searchDebounce = null;
+
+function _renderHistoryItems(list, conversations) {
+  if (!conversations.length) {
+    list.innerHTML =
+      '<p class="muted">No saved chats yet.<br>' +
+      'Start a conversation and click <strong>💾 Save</strong>.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const c of conversations) {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.className = 'history-item-check'; chk.dataset.id = c.id;
+    item.appendChild(chk);
+
+    const parts = [
+      c.backend       ? escapeHtml(c.backend) : null,
+      c.model         ? escapeHtml(c.model)   : null,
+      c.message_count + ' msg',
+      _timeAgo(c.updated_at),
+    ].filter(Boolean);
+
+    const mainDiv = document.createElement('div');
+    mainDiv.className = 'history-item-main';
+    mainDiv.innerHTML =
+      '<div class="history-item-title">' + escapeHtml(c.title) + '</div>' +
+      '<div class="history-item-meta">'  + parts.join(' · ') + '</div>';
+    mainDiv.addEventListener('click', () => {
+      if (_archiveMode) { chk.checked = !chk.checked; return; }
+      loadConversation(c.id);
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'history-delete-btn'; delBtn.title = 'Delete'; delBtn.textContent = '🗑';
+    delBtn.addEventListener('click', e => { e.stopPropagation(); deleteConversation(c.id); });
+
+    item.appendChild(mainDiv);
+    item.appendChild(delBtn);
+    list.appendChild(item);
+  }
+  if (_archiveMode) list.classList.add('archive-mode');
+}
+
+async function loadHistory() {
+  const list     = document.getElementById('history-list');
+  const countEl  = document.getElementById('history-count');
+  _archiveMode   = false;
+  list.classList.remove('archive-mode');
+  const archiveBar = document.getElementById('archive-confirm-bar');
+  if (archiveBar) archiveBar.style.display = 'none';
+  const archiveBtn = document.getElementById('archive-mode-btn');
+  if (archiveBtn) { archiveBtn.textContent = '📦 Archive'; archiveBtn.classList.remove('danger'); }
+  list.innerHTML = '<p class="muted">Loading saved chats…</p>';
+  try {
+    const resp = await fetch('/conversations', { headers: apiHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const convs  = await resp.json();
+    const suffix = pro.active ? '' : ` (${convs.length}/${pro.freeLimit} free)`;
+    countEl.textContent = convs.length + ' saved chat' + (convs.length !== 1 ? 's' : '') + suffix;
+    _renderHistoryItems(list, convs);
+  } catch (e) {
+    list.innerHTML = '<p style="color:var(--red)">Failed: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+function toggleArchiveMode() {
+  _archiveMode = !_archiveMode;
+  const list = document.getElementById('history-list');
+  list.classList.toggle('archive-mode', _archiveMode);
+  const btn = document.getElementById('archive-mode-btn');
+  if (btn) { btn.textContent = _archiveMode ? '✕ Cancel' : '📦 Archive'; btn.classList.toggle('danger', _archiveMode); }
+  const bar = document.getElementById('archive-confirm-bar');
+  if (bar) bar.style.display = _archiveMode ? 'flex' : 'none';
+}
+
+function _triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function archiveSelected() {
+  const checked = [...document.querySelectorAll('.history-item-check:checked')];
+  const ids     = checked.map(c => c.dataset.id).filter(Boolean);
+  if (!ids.length) { alert('Select at least one conversation to archive.'); return; }
+  if (!confirm(`Archive ${ids.length} conversation(s)? They will be removed and downloaded as a .zip.`)) return;
+  try {
+    const resp = await fetch('/conversations/archive', {
+      method: 'POST', headers: apiHeaders(), body: JSON.stringify({ ids }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    _triggerDownload(await resp.blob(), 'openclaw-archive.zip');
+    _archiveMode = false;
+    loadHistory();
+  } catch (e) { alert('Archive failed: ' + e.message); }
+}
+
+async function exportAll() {
+  if (!pro.active) {
+    alert('Bulk export is a Pro feature.\nUnlock at: ' + (pro.patreonUrl || 'patreon.com/TLG3D'));
+    return;
+  }
+  try {
+    const resp = await fetch('/conversations/export', { headers: apiHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    _triggerDownload(await resp.blob(), 'openclaw-export.zip');
+  } catch (e) { alert('Export failed: ' + e.message); }
+}
+
+function onHistorySearch(e) {
+  const q = e.target.value.trim();
+  if (!pro.active && q) {
+    e.target.value = ''; e.target.placeholder = '🔒 Search is Pro — see Settings to unlock'; return;
+  }
+  clearTimeout(_searchDebounce);
+  if (!q) { loadHistory(); return; }
+  _searchDebounce = setTimeout(async () => {
+    const list    = document.getElementById('history-list');
+    const countEl = document.getElementById('history-count');
+    try {
+      const resp = await fetch('/conversations/search?q=' + encodeURIComponent(q), { headers: apiHeaders() });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const results = await resp.json();
+      countEl.textContent = results.length + ' result' + (results.length !== 1 ? 's' : '') + ' for "' + escapeHtml(q) + '"';
+      _renderHistoryItems(list, results);
+    } catch (e) {
+      list.innerHTML = '<p style="color:var(--red)">Search failed: ' + escapeHtml(e.message) + '</p>';
+    }
+  }, 300);
+}
+
+async function loadConversation(id) {
+  if (state.messages.length > 0 && !confirm('Replace current conversation?')) return;
+  try {
+    const resp = await fetch('/conversations/' + encodeURIComponent(id), { headers: apiHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const c = await resp.json();
+    clearChat();
+    state.messages = (c.messages || []).map(m => ({ role: m.role, content: m.content }));
+    for (const m of state.messages) {
+      if (m.role === 'user' || m.role === 'assistant') appendBubble(m.role, m.content);
+    }
+    if (c.backend) selectBackend(c.backend);
+    if (c.model) { state.activeModel = c.model; document.getElementById('model-label').textContent = c.model; }
+    showTab('chat');
+  } catch (e) { alert('Failed to load conversation: ' + e.message); }
+}
+
+async function deleteConversation(id) {
+  if (!confirm('Permanently delete this saved chat?')) return;
+  try {
+    const resp = await fetch('/conversations/' + encodeURIComponent(id), { method: 'DELETE', headers: apiHeaders() });
+    if (!resp.ok && resp.status !== 404) throw new Error('HTTP ' + resp.status);
+    loadHistory();
+  } catch (e) { alert('Failed to delete: ' + e.message); }
+}
+
+/* ── Stats ───────────────────────────────────────────────────────────────── */
+async function loadStats() {
+  const panel = document.getElementById('stats-panel');
+  if (!pro.active) {
+    panel.innerHTML =
+      '<div style="padding:24px;text-align:center;color:var(--muted)">' +
+      '<p style="font-size:36px">📊</p>' +
+      '<p>Usage stats are a <strong style="color:#f59e0b">Pro</strong> feature.</p>' +
+      '<a href="' + escapeHtml(pro.patreonUrl) + '" target="_blank" rel="noopener noreferrer"' +
+      ' class="patreon-btn" style="display:inline-block;margin-top:14px">❤ Unlock Pro on Patreon</a>' +
+      '</div>';
+    return;
+  }
+  panel.innerHTML = '<p class="muted" style="padding:16px">Loading…</p>';
+  try {
+    const resp = await fetch('/conversations/stats', { headers: apiHeaders() });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    _renderStats(await resp.json());
+  } catch (e) {
+    panel.innerHTML = '<p style="color:var(--red);padding:16px">Failed: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+function _renderStats(s) {
+  const days  = Object.entries(s.messages_per_day).slice(-7);
+  const maxV  = days.reduce((m, [, v]) => Math.max(m, v), 1);
+  const bars  = days.length
+    ? days.map(([d, v]) =>
+        `<div class="chart-bar-row">
+           <span class="chart-bar-label">${escapeHtml(d.slice(5))}</span>
+           <div class="chart-bar-track">
+             <div class="chart-bar-fill" style="width:${Math.round(v / maxV * 100)}%"></div>
+           </div>
+           <span class="chart-bar-val">${v}</span>
+         </div>`).join('')
+    : '<p class="muted" style="font-size:13px">No data yet.</p>';
+
+  const topModels = s.top_models.length
+    ? s.top_models.map(([m, n]) => `<div style="font-size:13px;margin-bottom:4px">${escapeHtml(m)} <span class="muted">(${n})</span></div>`).join('')
+    : '<p class="muted" style="font-size:13px">—</p>';
+  const topBackends = s.top_backends.length
+    ? s.top_backends.map(([b, n]) => `<div style="font-size:13px;margin-bottom:4px">${escapeHtml(b)} <span class="muted">(${n})</span></div>`).join('')
+    : '<p class="muted" style="font-size:13px">—</p>';
+
+  document.getElementById('stats-panel').innerHTML = `
+    <div style="padding:16px 14px 32px">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">${s.total_conversations}</div>
+          <div class="stat-label">Conversations</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${s.total_messages}</div>
+          <div class="stat-label">Total Messages</div>
+        </div>
+      </div>
+      <div class="section-title">📅 Messages — last 7 days</div>
+      <div style="margin-bottom:20px">${bars}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div><div class="section-title" style="font-size:14px">🤖 Top Models</div>${topModels}</div>
+        <div><div class="section-title" style="font-size:14px">🔌 Top Backends</div>${topBackends}</div>
+      </div>
+    </div>`;
+}
+
+/* ── Pro ─────────────────────────────────────────────────────────────────── */
+async function checkProStatus() {
+  try {
+    const resp = await fetch('/pro/status', { headers: apiHeaders() });
+    if (!resp.ok) return;
+    const s = await resp.json();
+    pro.active        = !!s.pro;
+    pro.patreonUrl    = s.patreon_url || '';
+    pro.freeLimit     = s.free_conversation_limit || 25;
+    pro.freeLiveLimit = s.free_live_exchanges      || 5;
+    pro.freeTTSChars  = s.free_tts_char_limit      || 200;
+    pro.supporterName = s.supporter_name           || '';
+    _applyProUI();
+  } catch (_) {}
+}
+
+function _applyProUI() {
+  const show = (id, v) => { const el = document.getElementById(id); if (el) el.style.display = v ? '' : 'none'; };
+  show('pro-badge',          pro.active);
+  show('tab-stats',          pro.active);
+  show('pro-unlock-section', !pro.active);
+  show('pro-active-section',  pro.active);
+  show('theme-section',       pro.active);
+  show('presets-section',     pro.active);
+  show('preset-wrap',         pro.active);
+  show('compare-btn',         pro.active);
+  show('token-count',         pro.active);
+  show('zoom-controls',       pro.active);
+  if (pro.active && pro.supporterName) {
+    const el = document.getElementById('pro-supporter-name');
+    if (el) el.textContent = pro.supporterName;
+  }
+  _initLiveLanguageSelector();
+  _initTheme();
+}
+
+async function activatePro() {
+  const name  = document.getElementById('pro-name-input').value.trim();
+  const email = document.getElementById('pro-email-input').value.trim();
+  const btn   = document.getElementById('pro-activate-btn');
+  btn.disabled = true; btn.textContent = '⏳ Activating…';
+  try {
+    const resp = await fetch('/pro/activate', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ name: name || null, email: email || null }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    await checkProStatus();
+    showStatus('ok', '✓ Pro activated! Thank you for supporting OpenClaw ❤');
+  } catch (e) {
+    alert('Failed to activate Pro: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "✓ I've Donated — Activate Pro";
+  }
+}
+
+async function deactivatePro() {
+  if (!confirm('Deactivate Pro? You can re-activate at any time.')) return;
+  try {
+    await fetch('/pro/activate', { method: 'DELETE', headers: apiHeaders() });
+    await checkProStatus();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+/* ── Themes ──────────────────────────────────────────────────────────────── */
+function applyTheme(name) {
+  if (!pro.active && name !== 'default') {
+    alert('Custom themes are a Pro feature.\nUnlock at: ' + (pro.patreonUrl || 'patreon.com/TLG3D'));
+    return;
+  }
+  document.documentElement.setAttribute('data-theme', name === 'default' ? '' : name);
+  localStorage.setItem('openclaw-theme', name);
+  document.querySelectorAll('.theme-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.theme === name));
+}
+function _initTheme() {
+  const saved = localStorage.getItem('openclaw-theme') || 'default';
+  applyTheme(pro.active ? saved : 'default');
+}
+
+/* ── System-prompt & presets ─────────────────────────────────────────────── */
+function toggleSystemPrompt() {
+  document.getElementById('system-prompt-bar').classList.toggle('open');
+}
+function getSystemPrompt() {
+  const ta = document.getElementById('system-prompt-input');
+  return ta ? ta.value.trim() : '';
+}
+function _loadPresets() {
+  try { return JSON.parse(localStorage.getItem('openclaw-presets') || '[]'); } catch (_) { return []; }
+}
+function _savePresets(p) { localStorage.setItem('openclaw-presets', JSON.stringify(p)); }
+
+function applyPreset(name) {
+  if (!name) return;
+  const p = _loadPresets().find(x => x.name === name);
+  if (p) { document.getElementById('system-prompt-input').value = p.prompt; autoResize(document.getElementById('system-prompt-input')); }
+}
+function _refreshPresetSelect() {
+  const sel = document.getElementById('preset-select');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— no preset —</option>';
+  for (const p of _loadPresets()) {
+    const opt = document.createElement('option'); opt.value = p.name; opt.textContent = p.name; sel.appendChild(opt);
+  }
+  if (cur) sel.value = cur;
+}
+function _refreshPresetsList() {
+  const container = document.getElementById('presets-list');
+  if (!container) return;
+  const presets = _loadPresets();
+  if (!presets.length) { container.innerHTML = '<p class="muted" style="font-size:13px">No presets saved.</p>'; return; }
+  container.innerHTML = '';
+  for (const p of presets) {
+    const div = document.createElement('div');
+    div.className = 'preset-item';
+    div.innerHTML =
+      '<span class="preset-item-name">' + escapeHtml(p.name) + '</span>' +
+      '<button class="preset-item-del" title="Delete">🗑</button>';
+    div.querySelector('button').addEventListener('click', () => deletePreset(p.name));
+    div.addEventListener('click', e => {
+      if (e.target.tagName !== 'BUTTON') { applyPreset(p.name); toggleSystemPrompt(); showTab('chat'); }
+    });
+    container.appendChild(div);
+  }
+}
+function savePreset() {
+  const name   = document.getElementById('preset-name-input').value.trim();
+  const prompt = getSystemPrompt();
+  if (!name)   { alert('Enter a preset name.'); return; }
+  if (!prompt) { alert('Set a system prompt on the Chat tab first (click ⚙ Prompt).'); return; }
+  const presets = _loadPresets();
+  if (!pro.active && presets.length >= 1 && !presets.find(p => p.name === name)) {
+    alert('Free tier: 1 saved preset. Unlock unlimited with Pro.'); return;
+  }
+  const idx = presets.findIndex(p => p.name === name);
+  if (idx >= 0) presets[idx].prompt = prompt; else presets.push({ name, prompt });
+  _savePresets(presets); _refreshPresetSelect(); _refreshPresetsList();
+  document.getElementById('preset-name-input').value = '';
+}
+function deletePreset(name) {
+  if (!confirm('Delete preset "' + name + '"?')) return;
+  _savePresets(_loadPresets().filter(p => p.name !== name));
+  _refreshPresetSelect(); _refreshPresetsList();
+}
+
+/* ── Token count ─────────────────────────────────────────────────────────── */
+function _updateTokenCount() {
+  if (!pro.active) return;
+  const el = document.getElementById('token-count');
+  if (el) el.textContent = '~' + Math.ceil(chatInput.value.length / 4) + ' tok';
+}
+
+/* ── Model comparison (Pro) ──────────────────────────────────────────────── */
+let _compareActive = false;
+let _compareModel  = '';
+
+function toggleCompare() {
+  if (!pro.active) {
+    alert('Model comparison is Pro only.\nUnlock at: ' + (pro.patreonUrl || 'patreon.com/TLG3D'));
+    return;
+  }
+  _compareActive = !_compareActive;
+  document.getElementById('compare-toolbar').classList.toggle('open', _compareActive);
+  document.getElementById('compare-messages').classList.toggle('open', _compareActive);
+  document.getElementById('chat-messages').style.display = _compareActive ? 'none' : '';
+  document.getElementById('compare-btn').classList.toggle('active', _compareActive);
+  if (_compareActive) _populateCompareModels();
+}
+
+async function _populateCompareModels() {
+  try {
+    const resp = await fetch('/models', { headers: apiHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const sel  = document.getElementById('compare-model-select');
+    sel.innerHTML = '<option value="">— select model —</option>';
+    for (const m of (data.data || [])) {
+      if (m.id === state.activeModel) continue;
+      const opt = document.createElement('option'); opt.value = m.id; opt.textContent = m.id; sel.appendChild(opt);
+    }
+  } catch (_) {}
+}
+
+function updateCompareModel() {
+  _compareModel = document.getElementById('compare-model-select').value;
+  document.getElementById('compare-col-b-header').textContent = _compareModel || '— select model —';
+}
+
+async function _sendCompareMessage(text) {
+  const colA = document.getElementById('compare-col-a-body');
+  const colB = document.getElementById('compare-col-b-body');
+  document.getElementById('compare-col-a-header').textContent = state.activeModel || 'Model A';
+  document.getElementById('compare-col-b-header').textContent = _compareModel    || 'Model B';
+
+  const addBub = (col, role, t) => {
+    const d = document.createElement('div'); d.className = 'bubble ' + role; d.textContent = t;
+    col.appendChild(d); col.scrollTop = col.scrollHeight; return d;
+  };
+  addBub(colA, 'user', text); addBub(colB, 'user', text);
+  const bubA = addBub(colA, 'assistant', '▌');
+  const bubB = addBub(colB, 'assistant', '▌');
+
+  const sysPrompt = getSystemPrompt();
+  const msgs = [
+    ...(sysPrompt ? [{ role: 'system', content: sysPrompt }] : []),
+    ...state.messages.slice(),
+    { role: 'user', content: text },
+  ];
+
+  const streamTo = async (bub, modelId) => {
+    const resp = await fetch('/chat/completions', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ model: modelId || undefined, messages: msgs, stream: true }),
+    });
+    if (!resp.ok) { bub.className = 'bubble error'; bub.textContent = 'Error ' + resp.status; return ''; }
+    const reader = resp.body.getReader(); const decoder = new TextDecoder();
+    let buf = '', full = '';
+    while (true) {
+      const { done, value } = await reader.read(); if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim(); if (data === '[DONE]') continue;
+        try {
+          const c = JSON.parse(data); const d = c?.choices?.[0]?.delta?.content ?? '';
+          if (d) { full += d; bub.textContent = full; bub.parentElement.scrollTop = bub.parentElement.scrollHeight; }
+        } catch (_) {}
+      }
+    }
+    if (!full) full = bub.textContent.replace(/▌$/, '');
+    bub.textContent = full; return full;
+  };
+
+  const [fullA] = await Promise.all([
+    streamTo(bubA, state.activeModel),
+    streamTo(bubB, _compareModel),
+  ]);
+  if (fullA) state.messages.push({ role: 'assistant', content: fullA });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESOLUTION & ZOOM
+   ═══════════════════════════════════════════════════════════════════════════ */
+const RESOLUTIONS = {
+  '320x240':   { w: 320,  h: 240  },
+  '640x480':   { w: 640,  h: 480  },
+  '1280x720':  { w: 1280, h: 720  },
+  '1920x1080': { w: 1920, h: 1080 },
+  'native':    { w: null, h: null },
+};
+let _currentResolution = '1280x720';
+let _zoomLevel         = 1.0;
+
+function setResolution(key) {
+  _currentResolution = key;
+  if (live.cameraOn) { _stopCamera(); _startCamera(); }   // restart with new constraints
+}
+
+/* Zoom — Pro only */
+function setZoom(val) {
+  if (!pro.active) {
+    alert('Zoom is a Pro feature.\nUnlock at: ' + (pro.patreonUrl || 'patreon.com/TLG3D'));
+    _syncZoomUI(); return;
+  }
+  _zoomLevel = Math.min(5, Math.max(1, parseFloat(val) || 1));
+  _applyZoomCSS(); _syncZoomUI();
+}
+function adjustZoom(delta) { setZoom(_zoomLevel + delta); }
+
+function _applyZoomCSS() {
+  const v = document.getElementById('live-video');
+  if (v) { v.style.transform = `scale(${_zoomLevel})`; v.style.transformOrigin = 'center center'; }
+}
+function _syncZoomUI() {
+  const slider = document.getElementById('zoom-slider');
+  const label  = document.getElementById('zoom-label');
+  if (slider) slider.value = _zoomLevel;
+  if (label)  label.textContent = _zoomLevel.toFixed(1) + '×';
+}
+
+/* Resize an uploaded image dataURL to the current resolution setting */
+function _resizeDataUrl(dataUrl) {
+  return new Promise(resolve => {
+    const res = RESOLUTIONS[_currentResolution] || RESOLUTIONS['1280x720'];
+    if (!res.w) { resolve(dataUrl.split(',')[1]); return; }
+    const img = new Image();
+    img.onload = () => {
+      const ar = img.width / img.height;
+      let outW = res.w, outH = Math.round(res.w / ar);
+      if (outH > res.h) { outH = res.h; outW = Math.round(res.h * ar); }
+      outW = Math.min(outW, img.width); outH = Math.min(outH, img.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = outW; canvas.height = outH;
+      canvas.getContext('2d').drawImage(img, 0, 0, outW, outH);
+      const q = (outW * outH > 1_000_000) ? 0.75 : 0.85;
+      resolve(canvas.toDataURL('image/jpeg', q).split(',')[1]);
+    };
+    img.src = dataUrl;
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIVE SESSION  (STT → AI → TTS continuous loop)
+   ═══════════════════════════════════════════════════════════════════════════ */
+const LIVE_LANGUAGES = [
+  { code: 'en-US', label: 'English (US)'          },
+  { code: 'en-GB', label: 'English (UK)'          },
+  { code: 'es-ES', label: 'Español (España)'      },
+  { code: 'es-MX', label: 'Español (México)'      },
+  { code: 'fr-FR', label: 'Français'              },
+  { code: 'de-DE', label: 'Deutsch'               },
+  { code: 'pt-BR', label: 'Português (Brasil)'    },
+  { code: 'pt-PT', label: 'Português (Portugal)'  },
+  { code: 'it-IT', label: 'Italiano'              },
+  { code: 'ja-JP', label: '日本語'                },
+  { code: 'zh-CN', label: '中文 (简体)'           },
+  { code: 'zh-TW', label: '中文 (繁體)'           },
+  { code: 'ko-KR', label: '한국어'                },
+  { code: 'ar-SA', label: 'العربية'               },
+  { code: 'ru-RU', label: 'Русский'               },
+  { code: 'hi-IN', label: 'हिन्दी'               },
+  { code: 'nl-NL', label: 'Nederlands'            },
+  { code: 'pl-PL', label: 'Polski'                },
+  { code: 'tr-TR', label: 'Türkçe'                },
+  { code: 'sv-SE', label: 'Svenska'               },
+];
+
+const live = {
+  active:          false,
+  cameraOn:        false,
+  ttsOn:           true,
+  language:        'en-US',
+  exchangeCount:   0,
+  stream:          null,       // MediaStream
+  recognition:     null,       // SpeechRecognition instance
+  pendingImageB64: null,       // uploaded/captured image waiting to be sent
+};
+
+function _initLiveLanguageSelector() {
+  const sel = document.getElementById('live-lang-select');
+  if (!sel) return;
+  sel.innerHTML = '';
+  for (const lang of LIVE_LANGUAGES) {
+    const opt     = document.createElement('option');
+    const locked  = !pro.active && lang.code !== 'en-US' && lang.code !== 'en-GB';
+    opt.value     = lang.code;
+    opt.textContent = lang.label + (locked ? ' 🔒' : '');
+    opt.disabled  = locked;
+    sel.appendChild(opt);
+  }
+  sel.value = live.language;
+  const notice = document.getElementById('live-free-notice');
+  if (notice) notice.style.display = pro.active ? 'none' : '';
+}
+
+function setLiveLanguage(code) {
+  const FREE_CODES = ['en-US', 'en-GB'];
+  if (!pro.active && !FREE_CODES.includes(code)) {
+    alert('Multiple languages are a Pro feature.\nUnlock at: ' + (pro.patreonUrl || 'patreon.com/TLG3D'));
+    document.getElementById('live-lang-select').value = live.language;
+    return;
+  }
+  live.language = code;
+}
+
+function toggleLiveTTS() {
+  live.ttsOn = !live.ttsOn;
+  const btn = document.getElementById('live-tts-btn');
+  if (btn) btn.textContent = live.ttsOn ? '🔊 TTS: ON' : '🔇 TTS: OFF';
+  if (!live.ttsOn) speechSynthesis.cancel();
+}
+
+async function toggleLiveCamera() {
+  if (live.cameraOn) _stopCamera(); else await _startCamera();
+}
+
+async function _startCamera() {
+  try {
+    const res = RESOLUTIONS[_currentResolution] || RESOLUTIONS['1280x720'];
+    const videoConstraints = res.w
+      ? { width: { ideal: res.w }, height: { ideal: res.h } }
+      : true;
+    live.stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+    const video = document.getElementById('live-video');
+    video.srcObject = live.stream;
+    live.cameraOn = true;
+    document.getElementById('live-camera-placeholder').style.display = 'none';
+    const btn = document.getElementById('live-cam-btn');
+    if (btn) { btn.textContent = '📷 Camera: ON'; btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)'; }
+    _applyZoomCSS();
+  } catch (e) {
+    alert('Camera access denied or unavailable: ' + e.message);
+  }
+}
+
+function _stopCamera() {
+  if (live.stream) { live.stream.getTracks().forEach(t => t.stop()); live.stream = null; }
+  live.cameraOn = false;
+  const video = document.getElementById('live-video');
+  if (video) { video.srcObject = null; video.style.transform = ''; }
+  document.getElementById('live-camera-placeholder').style.display = 'flex';
+  const btn = document.getElementById('live-cam-btn');
+  if (btn) { btn.textContent = '📷 Camera'; btn.style.borderColor = ''; btn.style.color = ''; }
+}
+
+/* Capture a JPEG frame, respecting current resolution and zoom. */
+function _captureFrameBase64() {
+  if (!live.cameraOn) return null;
+  const video = document.getElementById('live-video');
+  if (!video || !video.videoWidth) return null;
+
+  const res = RESOLUTIONS[_currentResolution] || RESOLUTIONS['1280x720'];
+  const nW  = video.videoWidth, nH = video.videoHeight;
+  let outW, outH;
+  if (res.w) {
+    const ar = nW / nH;
+    outW = res.w; outH = Math.round(res.w / ar);
+    if (outH > res.h) { outH = res.h; outW = Math.round(res.h * ar); }
+    outW = Math.min(outW, nW); outH = Math.min(outH, nH);
+  } else { outW = nW; outH = nH; }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = outW; canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+
+  // Apply zoom by cropping the centre of the raw frame
+  if (_zoomLevel > 1) {
+    const cropW = nW / _zoomLevel, cropH = nH / _zoomLevel;
+    const cropX = (nW - cropW) / 2, cropY = (nH - cropH) / 2;
+    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+  } else {
+    ctx.drawImage(video, 0, 0, outW, outH);
+  }
+
+  const q = (outW * outH > 1_000_000) ? 0.75 : 0.85;
+  return canvas.toDataURL('image/jpeg', q).split(',')[1];
+}
+
+function captureFrame() {
+  const b64 = _captureFrameBase64();
+  if (!b64) { alert('Enable the camera first.'); return; }
+  live.pendingImageB64 = b64;
+  _addLiveTranscript('system', '📸 Frame captured — will be sent with your next message.');
+}
+
+function uploadImageToLive(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const b64 = await _resizeDataUrl(e.target.result);
+    live.pendingImageB64 = b64;
+    _addLiveTranscript('system', `📁 "${escapeHtml(file.name)}" loaded (${_currentResolution}) — will be sent with your next message.`);
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function toggleLiveSession() {
+  if (live.active) _stopLiveSession(); else _startLiveSession();
+}
+
+function _startLiveSession() {
+  if (!pro.active && live.exchangeCount >= pro.freeLiveLimit) {
+    alert(`You've used all ${pro.freeLiveLimit} free exchanges this session.\nUnlock unlimited with OpenClaw Pro!`);
+    return;
+  }
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) { alert('Speech recognition is not supported in this browser.\nPlease use Chrome or Edge.'); return; }
+  live.active = true;
+  const btn = document.getElementById('live-start-btn');
+  if (btn) { btn.textContent = '⏹ Stop Live Session'; btn.style.background = 'var(--red)'; }
+  _startListening();
+}
+
+function _stopLiveSession() {
+  live.active = false;
+  if (live.recognition) { live.recognition.abort(); live.recognition = null; }
+  speechSynthesis.cancel();
+  _setLiveStatus('', '');
+  const btn = document.getElementById('live-start-btn');
+  if (btn) { btn.textContent = '🎙 Start Live Session'; btn.style.background = ''; }
+}
+
+function _startListening() {
+  if (!live.active) return;
+  if (!pro.active && live.exchangeCount >= pro.freeLiveLimit) {
+    _stopLiveSession();
+    alert(`You've used all ${pro.freeLiveLimit} free live exchanges.\nUnlock unlimited with OpenClaw Pro!`);
+    return;
+  }
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recognition = new SpeechRec();
+  recognition.lang = live.language;
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  live.recognition = recognition;
+  _setLiveStatus('listening', '🎤 Listening…');
+
+  let finalTranscript = '';
+  recognition.onresult = (e) => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    _setLiveStatus('listening', '🎤 ' + (interim || finalTranscript || 'Listening…'));
+  };
+
+  recognition.onend = async () => {
+    if (!live.active) return;
+    if (!finalTranscript.trim()) { setTimeout(_startListening, 300); return; }
+    speechSynthesis.cancel();
+    _addLiveTranscript('user', finalTranscript.trim());
+    live.exchangeCount++;
+    _updateExchangeCount();
+    const imageB64 = live.cameraOn ? _captureFrameBase64() : live.pendingImageB64;
+    live.pendingImageB64 = null;
+    await _sendLiveMessage(finalTranscript.trim(), imageB64);
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'no-speech' || e.error === 'aborted') {
+      if (live.active) setTimeout(_startListening, 300); return;
+    }
+    _setLiveStatus('', '⚠ ' + e.error);
+    if (live.active) setTimeout(_startListening, 1000);
+  };
+  recognition.start();
+}
+
+async function _sendLiveMessage(text, imageB64) {
+  if (!live.active) return;
+  _setLiveStatus('thinking', '💭 Thinking…');
+
+  const content = imageB64
+    ? [{ type: 'text', text }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + imageB64 } }]
+    : text;
+
+  const sysPrompt = getSystemPrompt();
+  const msgs = [
+    ...(sysPrompt ? [{ role: 'system', content: sysPrompt }] : []),
+    ...state.messages.slice(-10),
+    { role: 'user', content },
+  ];
+
+  try {
+    const resp = await fetch('/chat/completions', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ model: state.activeModel || undefined, messages: msgs, stream: false }),
+    });
+    if (!resp.ok) {
+      const t = await resp.text();
+      _addLiveTranscript('error', 'Error ' + resp.status + ': ' + t.slice(0, 100));
+      if (live.active) setTimeout(_startListening, 1000); return;
+    }
+    const data  = await resp.json();
+    const reply = data?.choices?.[0]?.message?.content || '';
+    _addLiveTranscript('assistant', reply);
+    state.messages.push({ role: 'user', content: text }, { role: 'assistant', content: reply });
+
+    if (live.ttsOn && reply) {
+      const speakText = (!pro.active && reply.length > pro.freeTTSChars)
+        ? reply.slice(0, pro.freeTTSChars) + '…'
+        : reply;
+      _speakTTS(speakText, () => { if (live.active) _startListening(); });
+    } else {
+      if (live.active) _startListening();
+    }
+  } catch (e) {
+    _addLiveTranscript('error', 'Connection error: ' + e.message);
+    if (live.active) setTimeout(_startListening, 1500);
+  }
+}
+
+function _speakTTS(text, onEnd) {
+  speechSynthesis.cancel();
+  _setLiveStatus('speaking', '🔊 Speaking…');
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang  = live.language;
+  const voices = speechSynthesis.getVoices();
+  const match  = voices.find(v => v.lang.startsWith(live.language.slice(0, 2)));
+  if (match) utt.voice = match;
+  utt.onend  = () => { _setLiveStatus('', ''); if (onEnd) onEnd(); };
+  utt.onerror = () => { _setLiveStatus('', ''); if (onEnd) onEnd(); };
+  speechSynthesis.speak(utt);
+}
+
+function _addLiveTranscript(role, text) {
+  const container = document.getElementById('live-transcript');
+  const empty     = document.getElementById('live-transcript-empty');
+  if (empty) empty.style.display = 'none';
+  const div = document.createElement('div');
+  if (role === 'system') {
+    div.className   = 'live-sys-msg';
+    div.textContent = text;
+  } else {
+    div.className   = 'bubble ' + (role === 'user' ? 'user' : role === 'assistant' ? 'assistant' : 'error');
+    div.textContent = text;
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function _setLiveStatus(type, text) {
+  const dot   = document.getElementById('live-status-dot');
+  const label = document.getElementById('live-status-text');
+  if (!dot || !label) return;
+  dot.className   = 'live-dot' + (type ? ' ' + type : '');
+  dot.style.display = type ? '' : 'none';
+  label.textContent = text || '';
+}
+
+function _updateExchangeCount() {
+  const el = document.getElementById('live-exchange-count');
+  if (el) el.textContent = live.exchangeCount;
+}
+
+/* ── Tap-to-identify (Pro only) ──────────────────────────────────────────── */
+function onCameraTap(event) {
+  if (!live.cameraOn) return;
+  if (!pro.active) { _showTapToast('🔒 Tap-to-identify is Pro only'); return; }
+
+  const box  = document.getElementById('live-camera-box');
+  const rect = box.getBoundingClientRect();
+  const src  = event.touches ? event.touches[0] : event;
+  const tapX = src.clientX - rect.left;
+  const tapY = src.clientY - rect.top;
+  const relX = tapX / rect.width;
+  const relY = tapY / rect.height;
+
+  // Ripple animation at tap point
+  const ripple = document.createElement('div');
+  ripple.className  = 'tap-ripple';
+  ripple.style.left = (relX * 100) + '%';
+  ripple.style.top  = (relY * 100) + '%';
+  box.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 600);
+
+  identifyAtPoint(relX, relY);
+}
+
+async function identifyAtPoint(relX, relY) {
+  const video = document.getElementById('live-video');
+  if (!video || !video.videoWidth) return;
+
+  const res = RESOLUTIONS[_currentResolution] || RESOLUTIONS['1280x720'];
+  const nW  = video.videoWidth, nH = video.videoHeight;
+  let outW = res.w ? Math.min(res.w, nW) : nW;
+  let outH = res.h ? Math.min(res.h, nH) : nH;
+  const ar = nW / nH;
+  if (res.w && res.h) {
+    if (outW / ar > outH) outW = Math.round(outH * ar); else outH = Math.round(outW / ar);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = outW; canvas.height = outH;
+  const ctx = canvas.getContext('2d');
+
+  // Apply zoom crop
+  if (_zoomLevel > 1) {
+    const cropW = nW / _zoomLevel, cropH = nH / _zoomLevel;
+    const cropX = (nW - cropW) / 2, cropY = (nH - cropH) / 2;
+    ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+  } else {
+    ctx.drawImage(video, 0, 0, outW, outH);
+  }
+
+  // Draw gold crosshair at the tapped location
+  const cx = relX * outW, cy = relY * outH;
+  const r  = Math.min(outW, outH) * 0.06;
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = Math.max(2, r * 0.15);
+  ctx.shadowColor = '#000'; ctx.shadowBlur = 4;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - r * 1.5, cy); ctx.lineTo(cx + r * 1.5, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy - r * 1.5); ctx.lineTo(cx, cy + r * 1.5); ctx.stroke();
+
+  const q   = (outW * outH > 1_000_000) ? 0.75 : 0.85;
+  const b64 = canvas.toDataURL('image/jpeg', q).split(',')[1];
+
+  // Show loading state
+  const resultEl = document.getElementById('identify-result');
+  const bodyEl   = document.getElementById('identify-body');
+  resultEl.classList.add('visible');
+  bodyEl.textContent = '⏳ Identifying…';
+  _setLiveStatus('thinking', '🔍 Identifying item…');
+
+  const xPct = Math.round(relX * 100), yPct = Math.round(relY * 100);
+  const prompt =
+    `I've tapped at approximately ${xPct}% from the left and ${yPct}% from the top of this image ` +
+    `(marked with a gold crosshair). Please identify the specific item or subject at that location ` +
+    `and provide 3–5 interesting facts about it. Be concise and direct.`;
+
+  const sysPrompt = getSystemPrompt();
+  const msgs = [
+    ...(sysPrompt ? [{ role: 'system', content: sysPrompt }] : []),
+    { role: 'user', content: [
+      { type: 'text', text: prompt },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } },
+    ]},
+  ];
+
+  try {
+    const resp = await fetch('/chat/completions', {
+      method: 'POST', headers: apiHeaders(),
+      body: JSON.stringify({ model: state.activeModel || undefined, messages: msgs, stream: false }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data  = await resp.json();
+    const reply = data?.choices?.[0]?.message?.content || 'No response.';
+    bodyEl.textContent = reply;
+    _addLiveTranscript('assistant', '🔍 ' + reply);
+    if (live.ttsOn && reply) {
+      const speakText = (!pro.active && reply.length > pro.freeTTSChars)
+        ? reply.slice(0, pro.freeTTSChars) + '…' : reply;
+      _speakTTS(speakText, () => { if (live.active) _startListening(); });
+    }
+  } catch (e) {
+    bodyEl.textContent = 'Error: ' + e.message;
+  }
+  _setLiveStatus('', '');
+}
+
+function _showTapToast(msg) {
+  const box   = document.getElementById('live-camera-box');
+  const toast = document.createElement('div');
+  toast.style.cssText =
+    'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);' +
+    'background:rgba(0,0,0,.75);color:#fff;padding:8px 14px;border-radius:8px;' +
+    'font-size:13px;pointer-events:none;z-index:10;white-space:nowrap';
+  toast.textContent = msg;
+  box.appendChild(toast);
+  setTimeout(() => toast.remove(), 1800);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════════════════════════════ */
+document.getElementById('cloud-api-key').addEventListener('input', () => {
+  _apiKeyDirty[state.backend] = true;
+});
+
+// Trigger lazy voice-list load in browsers that populate it asynchronously
+if (typeof speechSynthesis !== 'undefined') {
+  speechSynthesis.onvoiceschanged = () => {};
+}
+
+(async function init() {
+  await loadSettingsFromServer();
+  await checkProStatus();
+  _initTheme();
+  _refreshPresetSelect();
+  _refreshPresetsList();
+  _initLiveLanguageSelector();
+  _syncZoomUI();
+  try {
+    const resp = await fetch('/health');
+    if (resp.ok) {
+      const h = await resp.json();
+      selectBackend(h.active_backend);
+      if (h.active_model) {
+        state.activeModel = h.active_model;
+        document.getElementById('model-label').textContent = h.active_model;
+      }
+    }
+  } catch (_) {
+    document.getElementById('backend-badge').textContent = 'offline';
+  }
+  sendBtn.disabled = chatInput.value.trim() === '';
+})();
+</script>
   backend:     'lmstudio',
   activeModel: '',
   customName:  'Custom',
