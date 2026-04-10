@@ -59,7 +59,7 @@ _PATREON_IDENTITY_URL = (
     "&fields[user]=full_name,email"
 )
 
-PATREON_MIN_CENTS       = 500    # $5.00 minimum pledge
+PATREON_MIN_CENTS       = 200    # $2.00 minimum pledge
 REVALIDATE_INTERVAL_SEC = 86400  # 24 h between automatic re-checks
 
 FREE_CONVERSATION_LIMIT = 25

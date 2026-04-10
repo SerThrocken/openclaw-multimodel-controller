@@ -3,6 +3,7 @@ import { Layout } from './components/layout/Layout';
 import { ChatPage } from './components/chat/ChatPage';
 import { ConnectionsPage } from './components/connections/ConnectionsPage';
 import { SettingsPage } from './components/settings/SettingsPage';
+import { HistoryPage } from './components/history/HistoryPage';
 
 function App() {
   return (
