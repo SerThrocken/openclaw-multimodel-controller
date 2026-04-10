@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../../store';
 import { Info, Trash2, Plus, Lock } from 'lucide-react';
-
-const PATREON_URL =
-  'https://patreon.com/TLG3D?utm_medium=unknown&utm_source=join_link&utm_campaign=creatorshare_creator&utm_content=copyLink';
+import { PATREON_URL } from '../../constants';
 
 const THEMES = [
   { id: 'dark', label: 'Dark', dot: '#1e293b', proOnly: false },
