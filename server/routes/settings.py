@@ -35,6 +35,10 @@ class SettingsUpdate(BaseModel):
     # Custom endpoint settings (not secret — safe to return)
     custom_base_url: Optional[str] = None
     custom_name: Optional[str] = None
+    # Patreon OAuth (client_secret is write-only — never returned by GET)
+    patreon_client_id:     Optional[str] = None
+    patreon_client_secret: Optional[str] = None
+    patreon_campaign_id:   Optional[str] = None
 
 
 @router.get("/settings")
@@ -57,6 +61,10 @@ def get_settings():
         # Custom endpoint (not secret)
         "custom_base_url": config.custom_base_url,
         "custom_name": config.custom_name,
+        # Patreon OAuth — client_id and campaign_id are safe to return; secret is boolean only
+        "patreon_client_id":         config.patreon_client_id,
+        "patreon_client_secret_set": config.patreon_client_secret is not None,
+        "patreon_campaign_id":       config.patreon_campaign_id,
     }
 
 

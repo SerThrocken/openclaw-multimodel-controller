@@ -77,6 +77,18 @@ class ServerConfig(BaseModel):
     # Active model selection (remembered across requests)
     active_model: Optional[str] = Field(default=None)
 
+    # ── Patreon OAuth for Pro tier ─────────────────────────────────────────
+    # Register an OAuth client at https://www.patreon.com/portal/registration/register-clients
+    # Redirect URI: http://localhost:{bind_port}/pro/oauth/callback
+    patreon_client_id:     Optional[str] = Field(default=None)
+    patreon_client_secret: Optional[str] = Field(default=None)  # write-only, never returned by GET
+    patreon_campaign_id:   Optional[str] = Field(default=None)  # optional, filters to your campaign
+    # Patreon ID of the server owner — bypasses pledge check (no pledge required for creator)
+    creator_patreon_id:    Optional[str] = Field(default=None)
+    # Fernet key used to encrypt Patreon tokens stored in pro.json.
+    # Generated automatically on first use; stored in this file (0o600 permissions).
+    pro_encryption_key:    Optional[str] = Field(default=None)
+
     def lmstudio_base_url(self) -> str:
         return f"http://{self.lmstudio_host}:{self.lmstudio_port}/v1"
 
