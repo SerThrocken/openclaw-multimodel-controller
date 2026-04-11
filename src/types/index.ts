@@ -68,6 +68,7 @@ export interface AppSettings {
   visionUsageDate: string;    // ISO date string "YYYY-MM-DD" for daily reset
   ttsCharUsedToday: number;   // TTS chars spoken today (free tier)
   ttsUsageDate: string;       // ISO date string for daily reset
+  googleClientId?: string;    // Google OAuth Client ID for Gemini sign-in
 }
 
 export interface ProviderTemplate {
@@ -80,6 +81,10 @@ export interface ProviderTemplate {
   docsUrl: string;
   description: string;
   color: string;
+  icon: string;              // emoji
+  getKeyUrl?: string;        // URL to get an API key for this service
+  autoDetectUrl?: string;    // URL to auto-detect local provider
+  oauthSupported?: boolean;  // whether Google OAuth connect is supported
 }
 
 export interface SendMessageOptions {

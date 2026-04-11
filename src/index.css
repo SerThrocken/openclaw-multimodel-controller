@@ -26,3 +26,46 @@ html, body, #root {
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* ── Custom scrollbar ─────────────────────────────────────────── */
+* { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+*::-webkit-scrollbar { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #334155; border-radius: 9999px; }
+*::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* ── Touch improvements (mobile) ─────────────────────────────── */
+button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+input, textarea, select { -webkit-tap-highlight-color: transparent; }
+
+/* ── Page transitions ─────────────────────────────────────────── */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+  50%       { box-shadow: 0 0 40px 10px rgba(59,130,246,0.25); }
+}
+
+/* Apply enter animation to all route pages */
+main > * { animation: fade-in 0.18s ease-out; }
+
+/* ── Mobile safe area (for notch/home bar) ──────────────────── */
+.safe-area-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem); }
+
+/* ── Better focus rings ───────────────────────────────────────── */
+:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
+
+/* ── Ripple on buttons (mobile feel) ─────────────────────────── */
+.active\:scale-\[0\.97\]:active { transform: scale(0.97); transition: transform 0.1s; }
+.active\:scale-\[0\.98\]:active { transform: scale(0.98); transition: transform 0.1s; }
+
+/* ── Smooth panel bg ─────────────────────────────────────────── */
+.bg-slate-750 { background-color: #1c2433; }

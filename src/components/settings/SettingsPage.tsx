@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../store';
 import { Info, Trash2, Plus, Lock } from 'lucide-react';
 import { PATREON_URL } from '../../constants';
+import { useToast } from '../../context/ToastContext';
 
 const THEMES = [
   { id: 'dark', label: 'Dark', dot: '#1e293b', proOnly: false },
@@ -40,6 +41,7 @@ export const SettingsPage: React.FC = () => {
   const [showAddPreset, setShowAddPreset] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [presetPrompt, setPresetPrompt] = useState('');
+  const toast = useToast();
 
   const stats = {
     providers: providers.length,
@@ -297,7 +299,7 @@ export const SettingsPage: React.FC = () => {
                 <button
                   onClick={() => {
                     updateSettings({ isPro: true });
-                    alert("🌟 Pro activated! Thank you so much for supporting OpenClaw. Every donation keeps the project alive.");
+                    toast.success("🌟 Pro activated! Thank you so much for supporting SerThrocken. Every donation keeps the project alive.");
                   }}
                   className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white text-sm rounded-lg transition-colors"
                 >
@@ -306,6 +308,33 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
           )}
+        </section>
+
+        {/* Integrations */}
+        <section>
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Integrations</h2>
+          <div className="space-y-3">
+            <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">✨</span>
+                <div className="flex-1">
+                  <p className="text-white font-medium text-sm">Google Sign-In for Gemini</p>
+                  <p className="text-slate-400 text-xs mt-1">
+                    Enter your Google OAuth Client ID to enable "Connect with Google" in Gemini connections.
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer"
+                      className="text-blue-400 hover:underline ml-1">Get a Client ID →</a>
+                  </p>
+                </div>
+              </div>
+              <input
+                type="text"
+                value={settings.googleClientId || ''}
+                onChange={e => updateSettings({ googleClientId: e.target.value })}
+                placeholder="xxxx.apps.googleusercontent.com"
+                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 font-mono"
+              />
+            </div>
+          </div>
         </section>
 
         {/* Stats */}

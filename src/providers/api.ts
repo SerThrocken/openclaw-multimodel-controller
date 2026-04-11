@@ -1,4 +1,5 @@
 import type { AIProvider, Message, SendMessageOptions } from '../types';
+import { isOAuthToken } from './google-oauth';
 
 export interface ChatCompletionPayload {
   url: string;
@@ -83,6 +84,7 @@ function buildAnthropicPayload(provider: AIProvider, messages: Message[]): ChatC
 
 function buildGeminiPayload(provider: AIProvider, messages: Message[]): ChatCompletionPayload {
   const baseUrl = provider.baseUrl || 'https://generativelanguage.googleapis.com';
+  const isOAuth = provider.apiKey ? isOAuthToken(provider.apiKey) : false;
   const contents = messages
     .filter((m) => m.role !== 'system')
     .map((m) => ({
@@ -96,9 +98,14 @@ function buildGeminiPayload(provider: AIProvider, messages: Message[]): ChatComp
     }));
 
   return {
-    url: `${baseUrl}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey || ''}`,
+    url: isOAuth
+      ? `${baseUrl}/v1beta/models/${provider.model}:generateContent`
+      : `${baseUrl}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey || ''}`,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(isOAuth ? { Authorization: `Bearer ${provider.apiKey}` } : {}),
+    },
     body: {
       contents,
       generationConfig: {
