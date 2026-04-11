@@ -5,9 +5,15 @@ import type { Message } from '../../types';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Send, Plus, Bot, User, ChevronDown,
-  AlertCircle, Loader2, MessageSquarePlus, X,
+  AlertCircle, Loader2, MessageSquarePlus, X, Star,
+  Camera, Volume2, VolumeX, Edit2,
 } from 'lucide-react';
 import { getProviderTemplate } from '../../providers/templates';
+import { LiveCameraView } from '../camera/LiveCameraView';
+import { ImageEditor } from '../editor/ImageEditor';
+import { VideoEditor } from '../editor/VideoEditor';
+import { useTTS } from '../../hooks/useTTS';
+import { FREE_TTS_CHAR_LIMIT, PATREON_URL } from '../../constants';
 
 const MarkdownText: React.FC<{ content: string }> = ({ content }) => {
   const lines = content.split('\n');
@@ -40,6 +46,7 @@ export const ChatPage: React.FC = () => {
     getActiveConversation,
     addMessage,
     updateMessage,
+    toggleStarMessage,
     settings,
   } = useStore();
 
@@ -51,6 +58,12 @@ export const ChatPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [showProviderPicker, setShowProviderPicker] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [showCamera, setShowCamera] = useState(false);
+  const [editingImage, setEditingImage] = useState<string | null>(null);
+  const [editingVideo, setEditingVideo] = useState<string | null>(null);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const { speak, stop } = useTTS();
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -81,9 +94,11 @@ export const ChatPage: React.FC = () => {
       content: input.trim(),
       providerId: activeProvider.id,
       providerName: activeProvider.name,
+      imageUrl: pendingImage || undefined,
     });
 
     setInput('');
+    setPendingImage(null);
     setIsLoading(true);
 
     // Add loading assistant message
@@ -206,6 +221,9 @@ export const ChatPage: React.FC = () => {
                       style={{ backgroundColor: prov?.color || '#6b7280' }}
                     />
                     <span className="text-xs truncate flex-1">{conv.title}</span>
+                    {conv.messages.some((m) => m.starred) && (
+                      <Star size={10} className="shrink-0 fill-amber-400 text-amber-400" />
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
                       className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 transition-all"
@@ -309,7 +327,19 @@ export const ChatPage: React.FC = () => {
             </div>
           ) : (
             activeConversation.messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} showTimestamp={settings.showTimestamps} fontSize={settings.fontSize} />
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                showTimestamp={settings.showTimestamps}
+                fontSize={settings.fontSize}
+                onStar={() => toggleStarMessage(activeConversation.id, msg.id)}
+                onSpeak={() => {
+                  if (speakingMsgId === msg.id) { stop(); setSpeakingMsgId(null); }
+                  else { setSpeakingMsgId(msg.id); speak(msg.content, () => setSpeakingMsgId(null)); }
+                }}
+                isSpeakingThis={speakingMsgId === msg.id}
+                onEditImage={(url) => setEditingImage(url)}
+              />
             ))
           )}
           <div ref={messagesEndRef} />
@@ -317,7 +347,29 @@ export const ChatPage: React.FC = () => {
 
         {/* Input area */}
         <div className="shrink-0 px-4 py-3 border-t border-slate-700 bg-slate-900">
+          {/* Pending image preview */}
+          {pendingImage && (
+            <div className="flex items-center gap-2 mb-2 max-w-4xl mx-auto">
+              <img src={pendingImage} alt="Attached" className="h-12 w-auto rounded border border-slate-600 object-cover" />
+              <button onClick={() => setPendingImage(null)} className="text-slate-500 hover:text-red-400"><X size={14}/></button>
+            </div>
+          )}
           <div className="flex items-end gap-2 max-w-4xl mx-auto">
+            {/* Image/video attach */}
+            <label className="p-2 text-slate-400 hover:text-white cursor-pointer shrink-0" title="Attach image or video">
+              <Edit2 size={16} />
+              <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => {
+                const file = e.target.files?.[0]; if (!file) return;
+                const url = URL.createObjectURL(file);
+                if (file.type.startsWith('video/')) { setEditingVideo(url); }
+                else { setEditingImage(url); }
+                e.target.value = '';
+              }} />
+            </label>
+            {/* Live camera */}
+            <button onClick={() => setShowCamera(true)} title="Live camera" className="p-2 text-slate-400 hover:text-white shrink-0">
+              <Camera size={16} />
+            </button>
             <textarea
               ref={inputRef}
               value={input}
@@ -352,11 +404,49 @@ export const ChatPage: React.FC = () => {
               </button>
             )}
           </div>
-          <p className="text-slate-600 text-xs text-center mt-1.5">
-            AI responses may be inaccurate. Verify important information.
-          </p>
+          <div className="flex items-center justify-between max-w-4xl mx-auto mt-1.5 px-1">
+            <span className="text-slate-600 text-xs">
+              ~{Math.ceil(
+                (activeConversation?.messages.reduce((a, m) => a + m.content.length, 0) ?? 0) / 4
+              )} tokens
+            </span>
+            <p className="text-slate-600 text-xs">
+              AI responses may be inaccurate. Verify important information.
+            </p>
+          </div>
+          {!settings.isPro && settings.ttsCharUsedToday > FREE_TTS_CHAR_LIMIT * 0.8 && (
+            <p className="text-xs text-amber-500 text-center mt-0.5">
+              TTS: {settings.ttsCharUsedToday}/{FREE_TTS_CHAR_LIMIT} chars used today ·{' '}
+              <a href={PATREON_URL} target="_blank" rel="noopener noreferrer" className="underline">Unlock unlimited with Pro</a>
+            </p>
+          )}
         </div>
       </div>
+
+      {/* Camera / editor overlays */}
+      {showCamera && (
+        <LiveCameraView
+          onCapture={(url) => { setPendingImage(url); setShowCamera(false); }}
+          onClose={() => setShowCamera(false)}
+          activeProviderId={activeChatProviderId}
+        />
+      )}
+      {editingImage && (
+        <ImageEditor
+          imageUrl={editingImage}
+          onSave={(url) => { setPendingImage(url); setEditingImage(null); }}
+          onClose={() => setEditingImage(null)}
+          activeProviderId={activeChatProviderId}
+        />
+      )}
+      {editingVideo && (
+        <VideoEditor
+          videoUrl={editingVideo}
+          onClose={() => setEditingVideo(null)}
+          onExportFrame={(url) => { setPendingImage(url); setEditingVideo(null); }}
+          activeProviderId={activeChatProviderId}
+        />
+      )}
     </div>
   );
 };
@@ -365,12 +455,21 @@ const MessageBubble: React.FC<{
   message: Message;
   showTimestamp: boolean;
   fontSize: 'sm' | 'md' | 'lg';
-}> = ({ message, showTimestamp, fontSize }) => {
+  onStar?: () => void;
+  onSpeak?: () => void;
+  isSpeakingThis?: boolean;
+  onEditImage?: (url: string) => void;
+}> = ({ message, showTimestamp, fontSize, onStar, onSpeak, isSpeakingThis, onEditImage }) => {
   const isUser = message.role === 'user';
   const fontClass = fontSize === 'sm' ? 'text-xs' : fontSize === 'lg' ? 'text-base' : 'text-sm';
+  const [hovered, setHovered] = useState(false);
 
   return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div
+      className={`flex gap-3 group ${isUser ? 'flex-row-reverse' : ''}`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {/* Avatar */}
       <div className={`w-8 h-8 rounded-full shrink-0 flex items-center justify-center ${
         isUser ? 'bg-blue-600' : 'bg-slate-700'
@@ -405,13 +504,46 @@ const MessageBubble: React.FC<{
           ) : (
             <MarkdownText content={message.content} />
           )}
+          {message.imageUrl && (
+            <img
+              src={message.imageUrl}
+              alt="Attached"
+              className="mt-2 max-w-xs rounded-lg border border-slate-600 cursor-pointer"
+              onClick={() => onEditImage?.(message.imageUrl!)}
+            />
+          )}
         </div>
 
-        {showTimestamp && (
-          <span className="text-xs text-slate-600 px-1">
-            {new Date(message.timestamp).toLocaleTimeString()}
-          </span>
-        )}
+        {/* Actions row */}
+        <div className={`flex items-center gap-1 px-1 ${isUser ? 'flex-row-reverse' : ''}`}>
+          {showTimestamp && (
+            <span className="text-xs text-slate-600">
+              {new Date(message.timestamp).toLocaleTimeString()}
+            </span>
+          )}
+          {!isUser && (
+            <div className={`flex items-center gap-1 transition-opacity ${hovered || message.starred ? 'opacity-100' : 'opacity-0'}`}>
+              {onSpeak && (
+                <button
+                  onClick={onSpeak}
+                  title={isSpeakingThis ? 'Stop' : 'Read aloud'}
+                  className="p-1 text-slate-500 hover:text-blue-400"
+                >
+                  {isSpeakingThis ? <VolumeX size={12}/> : <Volume2 size={12}/>}
+                </button>
+              )}
+              {onStar && (
+                <button
+                  onClick={onStar}
+                  title={message.starred ? 'Unstar' : 'Star message'}
+                  className={`p-0.5 ${message.starred ? 'text-amber-400' : 'text-slate-500 hover:text-amber-400'}`}
+                >
+                  <Star size={13} className={message.starred ? 'fill-amber-400' : ''} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

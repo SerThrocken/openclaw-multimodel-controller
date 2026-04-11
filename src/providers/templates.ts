@@ -11,6 +11,8 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     docsUrl: 'https://platform.openai.com/docs',
     description: 'OpenAI GPT models including GPT-4o, o1, and more.',
     color: '#10a37f',
+    icon: '🤖',
+    getKeyUrl: 'https://platform.openai.com/api-keys',
   },
   {
     type: 'anthropic',
@@ -31,6 +33,8 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     docsUrl: 'https://docs.anthropic.com',
     description: 'Anthropic\'s Claude models – intelligent and safe AI assistants.',
     color: '#d4a853',
+    icon: '🟠',
+    getKeyUrl: 'https://console.anthropic.com/settings/keys',
   },
   {
     type: 'gemini',
@@ -49,6 +53,9 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     docsUrl: 'https://ai.google.dev/docs',
     description: 'Google\'s Gemini multimodal AI models.',
     color: '#4285f4',
+    icon: '✨',
+    getKeyUrl: 'https://aistudio.google.com/app/apikey',
+    oauthSupported: true,
   },
   {
     type: 'perplexity',
@@ -66,6 +73,8 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     docsUrl: 'https://docs.perplexity.ai',
     description: 'Perplexity AI – real-time search-augmented language models.',
     color: '#20b8cd',
+    icon: '🔍',
+    getKeyUrl: 'https://www.perplexity.ai/settings/api',
   },
   {
     type: 'ollama',
@@ -87,6 +96,8 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     docsUrl: 'https://ollama.com',
     description: 'Run AI models locally on your machine with Ollama.',
     color: '#e84393',
+    icon: '🦙',
+    autoDetectUrl: 'http://localhost:11434',
   },
   {
     type: 'openrouter',
@@ -106,6 +117,8 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     docsUrl: 'https://openrouter.ai/docs',
     description: 'Unified API access to hundreds of AI models from all providers.',
     color: '#7c3aed',
+    icon: '🔀',
+    getKeyUrl: 'https://openrouter.ai/keys',
   },
   {
     type: 'custom',
@@ -117,6 +130,7 @@ export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
     docsUrl: '',
     description: 'Any OpenAI-compatible API endpoint (LM Studio, vLLM, etc.).',
     color: '#6b7280',
+    icon: '⚙️',
   },
 ];
 

@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import type { AIProvider, ProviderType } from '../../types';
 import { useStore } from '../../store';
 import { PROVIDER_TEMPLATES, getProviderTemplate } from '../../providers/templates';
-import { X, Eye, EyeOff, ChevronDown } from 'lucide-react';
+import { X, Eye, EyeOff, ChevronDown, Loader2, ExternalLink, RefreshCw } from 'lucide-react';
+import { startGoogleOAuth } from '../../providers/google-oauth';
+import { useToast } from '../../context/ToastContext';
 
 interface ProviderFormProps {
   provider?: AIProvider;
@@ -11,7 +13,8 @@ interface ProviderFormProps {
 }
 
 export const ProviderForm: React.FC<ProviderFormProps> = ({ provider, defaultType, onClose }) => {
-  const { addProvider, updateProvider } = useStore();
+  const { addProvider, updateProvider, settings } = useStore();
+  const toast = useToast();
   const isEdit = !!provider?.id;
 
   const selectedTemplate = getProviderTemplate(defaultType || 'openai');
@@ -32,6 +35,7 @@ export const ProviderForm: React.FC<ProviderFormProps> = ({ provider, defaultTyp
   const [showApiKey, setShowApiKey] = useState(false);
   const [customModel, setCustomModel] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const template = getProviderTemplate(form.type);
 
@@ -78,6 +82,20 @@ export const ProviderForm: React.FC<ProviderFormProps> = ({ provider, defaultTyp
   };
 
   const set = (key: string, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
+
+  const handleGoogleConnect = async () => {
+    if (!settings.googleClientId) return;
+    setGoogleLoading(true);
+    try {
+      const token = await startGoogleOAuth(settings.googleClientId);
+      set('apiKey', token);
+      toast.success('Google account connected! Token stored as API key.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Google sign-in failed.');
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const modelOptions = template?.modelOptions || [];
 
@@ -143,6 +161,21 @@ export const ProviderForm: React.FC<ProviderFormProps> = ({ provider, defaultTyp
               <label className="block text-sm font-medium text-slate-300 mb-1.5">
                 API Key {!template?.requiresApiKey && <span className="text-slate-500">(optional)</span>}
               </label>
+              {/* Google OAuth connect button for Gemini */}
+              {form.type === 'gemini' && settings.googleClientId && (
+                <div className="flex items-center gap-2 p-3 bg-blue-900/20 border border-blue-700/40 rounded-xl mb-2">
+                  <span className="text-2xl">✨</span>
+                  <div className="flex-1">
+                    <p className="text-white text-sm font-medium">Connect with Google</p>
+                    <p className="text-slate-400 text-xs">Use your Google account instead of an API key</p>
+                  </div>
+                  <button type="button" onClick={handleGoogleConnect} disabled={googleLoading}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs rounded-lg transition-colors flex items-center gap-1.5">
+                    {googleLoading ? <Loader2 size={12} className="animate-spin"/> : null}
+                    {googleLoading ? 'Signing in…' : 'Sign in'}
+                  </button>
+                </div>
+              )}
               <div className="relative">
                 <input
                   type={showApiKey ? 'text' : 'password'}
@@ -160,6 +193,12 @@ export const ProviderForm: React.FC<ProviderFormProps> = ({ provider, defaultTyp
                 </button>
               </div>
               {errors.apiKey && <p className="text-red-400 text-xs mt-1">{errors.apiKey}</p>}
+              {template?.getKeyUrl && (
+                <a href={template.getKeyUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 mt-1.5">
+                  <ExternalLink size={11}/> Get your API key →
+                </a>
+              )}
             </div>
           )}
 
@@ -173,6 +212,21 @@ export const ProviderForm: React.FC<ProviderFormProps> = ({ provider, defaultTyp
               placeholder="https://api.openai.com/v1"
             />
             {errors.baseUrl && <p className="text-red-400 text-xs mt-1">{errors.baseUrl}</p>}
+            {template?.autoDetectUrl && (
+              <button type="button"
+                onClick={async () => {
+                  try {
+                    const r = await fetch(template.autoDetectUrl + '/api/tags', { signal: AbortSignal.timeout(3000) });
+                    if (r.ok) { set('baseUrl', template.autoDetectUrl); toast.success('Local server detected!'); }
+                    else toast.error('Server responded with error.');
+                  } catch {
+                    toast.error('Could not reach ' + template.autoDetectUrl);
+                  }
+                }}
+                className="mt-1.5 flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                <RefreshCw size={11}/> Auto-detect local server
+              </button>
+            )}
           </div>
 
           {/* Model */}

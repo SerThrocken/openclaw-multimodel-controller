@@ -1,4 +1,5 @@
 import type { AIProvider, Message, SendMessageOptions } from '../types';
+import { isOAuthToken } from './google-oauth';
 
 export interface ChatCompletionPayload {
   url: string;
@@ -9,7 +10,15 @@ export interface ChatCompletionPayload {
 
 function buildOpenAIPayload(provider: AIProvider, messages: Message[]): ChatCompletionPayload {
   const baseUrl = provider.baseUrl || 'https://api.openai.com/v1';
-  const msgs = messages.map((m) => ({ role: m.role, content: m.content }));
+  const msgs = messages.map((m) => ({
+    role: m.role,
+    content: m.imageUrl
+      ? [
+          { type: 'text', text: m.content },
+          { type: 'image_url', image_url: { url: m.imageUrl } },
+        ]
+      : m.content,
+  }));
 
   if (provider.systemPrompt) {
     msgs.unshift({ role: 'system', content: provider.systemPrompt });
@@ -39,7 +48,22 @@ function buildAnthropicPayload(provider: AIProvider, messages: Message[]): ChatC
   const baseUrl = provider.baseUrl || 'https://api.anthropic.com';
   const userMessages = messages
     .filter((m) => m.role !== 'system')
-    .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.imageUrl
+        ? [
+            { type: 'text', text: m.content },
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: m.imageUrl.replace(/^data:image\/jpeg;base64,/, ''),
+              },
+            },
+          ]
+        : m.content,
+    }));
 
   return {
     url: `${baseUrl}/v1/messages`,
@@ -60,17 +84,28 @@ function buildAnthropicPayload(provider: AIProvider, messages: Message[]): ChatC
 
 function buildGeminiPayload(provider: AIProvider, messages: Message[]): ChatCompletionPayload {
   const baseUrl = provider.baseUrl || 'https://generativelanguage.googleapis.com';
+  const isOAuth = provider.apiKey ? isOAuthToken(provider.apiKey) : false;
   const contents = messages
     .filter((m) => m.role !== 'system')
     .map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
+      parts: m.imageUrl
+        ? [
+            { text: m.content },
+            { inline_data: { mime_type: 'image/jpeg', data: m.imageUrl.replace(/^data:image\/jpeg;base64,/, '') } },
+          ]
+        : [{ text: m.content }],
     }));
 
   return {
-    url: `${baseUrl}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey || ''}`,
+    url: isOAuth
+      ? `${baseUrl}/v1beta/models/${provider.model}:generateContent`
+      : `${baseUrl}/v1beta/models/${provider.model}:generateContent?key=${provider.apiKey || ''}`,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(isOAuth ? { Authorization: `Bearer ${provider.apiKey}` } : {}),
+    },
     body: {
       contents,
       generationConfig: {
