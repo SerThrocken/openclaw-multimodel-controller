@@ -1,12 +1,12 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { MessageSquare, Plug, History, Settings } from 'lucide-react';
+import { MessageSquare, History, Settings, Sparkles } from 'lucide-react';
 
 const items = [
-  { to: '/',            icon: MessageSquare, label: 'Chat'     },
-  { to: '/connections', icon: Plug,          label: 'Connect'  },
-  { to: '/history',     icon: History,       label: 'History'  },
-  { to: '/settings',    icon: Settings,      label: 'Settings' },
+  { to: '/',        icon: MessageSquare, label: 'Chat'     },
+  { to: '/skills',  icon: Sparkles,      label: 'Skills'   },
+  { to: '/history', icon: History,       label: 'History'  },
+  { to: '/settings',icon: Settings,      label: 'Settings' },
 ];
 
 export const BottomNav: React.FC = () => (

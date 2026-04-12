@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   Send, Plus, Bot, User, ChevronDown,
   AlertCircle, Loader2, MessageSquarePlus, X, Star,
-  Camera, Volume2, VolumeX, Edit2,
+  Camera, Volume2, VolumeX, Edit2, Brain, GripHorizontal,
 } from 'lucide-react';
 import { getProviderTemplate } from '../../providers/templates';
 import { LiveCameraView } from '../camera/LiveCameraView';
@@ -14,6 +14,7 @@ import { ImageEditor } from '../editor/ImageEditor';
 import { VideoEditor } from '../editor/VideoEditor';
 import { useTTS } from '../../hooks/useTTS';
 import { FREE_TTS_CHAR_LIMIT, PATREON_URL } from '../../constants';
+import { BUILTIN_SKILLS } from '../../providers/skills-library';
 
 const MarkdownText: React.FC<{ content: string }> = ({ content }) => {
   const lines = content.split('\n');
@@ -48,6 +49,8 @@ export const ChatPage: React.FC = () => {
     updateMessage,
     toggleStarMessage,
     settings,
+    addMemory,
+    customSkills,
   } = useStore();
 
   const enabledProviders = providers.filter((p) => p.enabled);
@@ -63,6 +66,8 @@ export const ChatPage: React.FC = () => {
   const [editingVideo, setEditingVideo] = useState<string | null>(null);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+  const [skillBannerDismissed, setSkillBannerDismissed] = useState(false);
+  const [showMobileChats, setShowMobileChats] = useState(false);
   const { speak, stop } = useTTS();
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -123,6 +128,23 @@ export const ChatPage: React.FC = () => {
       const history: Message[] = [
         ...(conv?.messages.filter((m) => !m.loading && m.id !== loadingMsg?.id) || []),
       ];
+
+      // Inject active skills as a system message at the start
+      const activeSkillIds = settings.activeSkillIds || [];
+      if (activeSkillIds.length > 0) {
+        const allSkills = [...BUILTIN_SKILLS, ...customSkills];
+        const activeSkills = allSkills.filter((s) => activeSkillIds.includes(s.id));
+        if (activeSkills.length > 0) {
+          const skillPrompt = activeSkills.map((s) => s.systemPrompt).join('\n\n');
+          const skillSystemMsg: Message = {
+            id: uuidv4(),
+            role: 'system',
+            content: skillPrompt,
+            timestamp: new Date().toISOString(),
+          };
+          history.unshift(skillSystemMsg);
+        }
+      }
 
       const response = await sendMessage({
         provider: activeProvider,
@@ -244,7 +266,7 @@ export const ChatPage: React.FC = () => {
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-900 shrink-0">
           <button
             onClick={() => setShowSidebar((v) => !v)}
-            className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            className="hidden md:flex p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
           >
             <ChevronDown size={16} className={`transition-transform ${showSidebar ? '-rotate-90' : 'rotate-90'}`} />
           </button>
@@ -295,35 +317,64 @@ export const ChatPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Active skills banner */}
+        {(settings.activeSkillIds || []).length > 0 && !skillBannerDismissed && (() => {
+          const allSkills = [...BUILTIN_SKILLS, ...customSkills];
+          const activeNames = allSkills
+            .filter((s) => (settings.activeSkillIds || []).includes(s.id))
+            .map((s) => `${s.icon} ${s.name}`)
+            .join(', ');
+          return (
+            <div className="flex items-center gap-2 px-4 py-1.5 bg-blue-900/30 border-b border-blue-700/40 shrink-0">
+              <span className="text-xs text-blue-300 flex-1 truncate">🔧 Active: {activeNames}</span>
+              <button onClick={() => setSkillBannerDismissed(true)} className="text-blue-500 hover:text-blue-300 shrink-0">
+                <X size={12} />
+              </button>
+            </div>
+          );
+        })()}
+
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4" onClick={() => setShowProviderPicker(false)}>
           {!activeConversation || activeConversation.messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center"
-                style={{ backgroundColor: activeProvider?.color + '33' }}
-              >
-                <Bot size={28} style={{ color: activeProvider?.color }} />
+            <div className="flex flex-col items-center justify-center h-full gap-5 text-center px-4">
+              {/* Animated gradient orb */}
+              <div className="relative">
+                <div
+                  className="w-20 h-20 rounded-full animate-float"
+                  style={{
+                    background: `radial-gradient(circle at 40% 40%, ${activeProvider?.color || '#3b82f6'}99, ${activeProvider?.color || '#6366f1'}44)`,
+                    boxShadow: `0 0 40px ${activeProvider?.color || '#3b82f6'}44`,
+                  }}
+                />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-white">
-                  {activeProvider ? `Chat with ${activeProvider.name}` : 'Start a conversation'}
-                </h3>
+                <h3 className="text-2xl font-bold text-white tracking-tight">Openclaw</h3>
                 <p className="text-slate-400 text-sm mt-1">
-                  {activeProvider?.model} · Send a message to begin
+                  {activeProvider ? `${activeProvider.name} · ${activeProvider.model}` : 'Select a provider to begin'}
                 </p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-md w-full">
-                {['What can you help me with?', 'Write me a short story', 'Explain quantum computing', 'Help me debug my code'].map((suggestion) => (
+              {/* Suggestion chips */}
+              <div className="flex gap-2 overflow-x-auto pb-1 max-w-lg w-full justify-start sm:justify-center">
+                {[
+                  'What can you do?',
+                  'Write me a poem',
+                  'Help me debug code',
+                  'Explain a concept',
+                  'Summarize a topic',
+                  'Plan my day',
+                  'Give me ideas',
+                ].map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => setInput(suggestion)}
-                    className="text-left text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg px-3 py-2 transition-colors"
+                    className="shrink-0 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-full px-3 py-1.5 transition-colors"
                   >
                     {suggestion}
                   </button>
                 ))}
               </div>
+              <p className="text-slate-700 text-xs mt-2">Openclaw · SerThrocken/openclaw-multimodel-controller</p>
             </div>
           ) : (
             activeConversation.messages.map((msg) => (
@@ -339,6 +390,7 @@ export const ChatPage: React.FC = () => {
                 }}
                 isSpeakingThis={speakingMsgId === msg.id}
                 onEditImage={(url) => setEditingImage(url)}
+                onSaveMemory={(content) => addMemory(content, undefined, activeConversation.id)}
               />
             ))
           )}
@@ -447,6 +499,73 @@ export const ChatPage: React.FC = () => {
           activeProviderId={activeChatProviderId}
         />
       )}
+
+      {/* Mobile: Floating Chats button */}
+      <button
+        onClick={() => setShowMobileChats(true)}
+        className="md:hidden fixed bottom-24 left-4 z-30 flex items-center gap-1.5 px-3 py-2 bg-slate-800 border border-slate-600 rounded-full text-xs text-slate-300 shadow-lg"
+      >
+        <MessageSquarePlus size={14} />
+        Chats
+      </button>
+
+      {/* Mobile: Bottom sheet for conversations */}
+      {showMobileChats && (
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="flex-1 bg-black/50" onClick={() => setShowMobileChats(false)} />
+          <div className="bg-slate-900 border-t border-slate-700 rounded-t-2xl animate-slide-in-bottom max-h-[70vh] flex flex-col">
+            <div className="flex justify-center pt-2 pb-1 shrink-0">
+              <GripHorizontal size={20} className="text-slate-600" />
+            </div>
+            <div className="flex items-center justify-between px-4 pb-2 shrink-0">
+              <span className="text-sm font-semibold text-white">Conversations</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { handleNewChat(); setShowMobileChats(false); }}
+                  className="flex items-center gap-1 px-2 py-1 bg-blue-600 rounded text-white text-xs"
+                >
+                  <Plus size={12} /> New
+                </button>
+                <button onClick={() => setShowMobileChats(false)} className="text-slate-400">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 px-3 pb-4">
+              {conversations.length === 0 ? (
+                <p className="text-slate-500 text-xs text-center py-8">No conversations yet</p>
+              ) : (
+                conversations.map((conv) => {
+                  const prov = providers.find((p) => p.id === conv.providerId);
+                  return (
+                    <div
+                      key={conv.id}
+                      onClick={() => { setActiveConversation(conv.id); setShowMobileChats(false); }}
+                      className={`group flex items-center gap-2 px-3 py-2.5 rounded-lg mb-1 cursor-pointer transition-colors ${
+                        conv.id === activeConversationId
+                          ? 'bg-blue-600/20 text-white'
+                          : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <div
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: prov?.color || '#6b7280' }}
+                      />
+                      <span className="text-sm truncate flex-1">{conv.title}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id); }}
+                        className="p-0.5 hover:text-red-400 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -459,10 +578,18 @@ const MessageBubble: React.FC<{
   onSpeak?: () => void;
   isSpeakingThis?: boolean;
   onEditImage?: (url: string) => void;
-}> = ({ message, showTimestamp, fontSize, onStar, onSpeak, isSpeakingThis, onEditImage }) => {
+  onSaveMemory?: (content: string) => void;
+}> = ({ message, showTimestamp, fontSize, onStar, onSpeak, isSpeakingThis, onEditImage, onSaveMemory }) => {
   const isUser = message.role === 'user';
   const fontClass = fontSize === 'sm' ? 'text-xs' : fontSize === 'lg' ? 'text-base' : 'text-sm';
   const [hovered, setHovered] = useState(false);
+  const [memorySaved, setMemorySaved] = useState(false);
+
+  const handleSaveMemory = () => {
+    onSaveMemory?.(message.content);
+    setMemorySaved(true);
+    setTimeout(() => setMemorySaved(false), 2000);
+  };
 
   return (
     <div
@@ -539,6 +666,15 @@ const MessageBubble: React.FC<{
                   className={`p-0.5 ${message.starred ? 'text-amber-400' : 'text-slate-500 hover:text-amber-400'}`}
                 >
                   <Star size={13} className={message.starred ? 'fill-amber-400' : ''} />
+                </button>
+              )}
+              {onSaveMemory && !message.loading && message.content && (
+                <button
+                  onClick={handleSaveMemory}
+                  title="Save as Memory"
+                  className={`p-1 transition-colors ${memorySaved ? 'text-purple-400' : 'text-slate-500 hover:text-purple-400'}`}
+                >
+                  <Brain size={12} />
                 </button>
               )}
             </div>

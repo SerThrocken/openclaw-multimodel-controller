@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   MessageSquare,
   Plug,
@@ -9,6 +9,10 @@ import {
   X,
   History,
   Star,
+  Brain,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useStore } from '../../store';
 import { useState } from 'react';
@@ -18,23 +22,35 @@ export const Sidebar: React.FC = () => {
   const providers = useStore((s) => s.providers);
   const conversations = useStore((s) => s.conversations);
   const settings = useStore((s) => s.settings);
+  const memories = useStore((s) => s.memories);
+  const setActiveConversation = useStore((s) => s.setActiveConversation);
   const enabledCount = providers.filter((p) => p.enabled).length;
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showRecentChats, setShowRecentChats] = useState(true);
+  const navigate = useNavigate();
+
+  const activeSkillIds = settings.activeSkillIds || [];
 
   const starredCount = conversations.reduce(
     (acc, c) => acc + c.messages.filter((m) => m.starred).length,
     0,
   );
 
+  const recentChats = [...conversations]
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5);
+
   const navItems = [
     { to: '/', icon: MessageSquare, label: 'Chat' },
+    { to: '/skills', icon: Sparkles, label: 'Skills' },
+    { to: '/memory', icon: Brain, label: 'Memory' },
     { to: '/history', icon: History, label: 'History' },
     { to: '/connections', icon: Plug, label: 'Connections' },
     { to: '/settings', icon: Settings, label: 'Settings' },
   ];
 
   const sidebarContent = (
-    <div className="flex flex-col h-full bg-slate-900 border-r border-slate-700">
+    <div className="flex flex-col h-full bg-slate-900 border-r border-slate-700 animate-slide-in-left md:animate-none">
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-700">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
@@ -46,8 +62,28 @@ export const Sidebar: React.FC = () => {
         </div>
       </div>
 
+      {/* Stats bar */}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 text-xs">
+        <div className="flex items-center gap-1">
+          <span className="w-2 h-2 rounded-full bg-green-500" />
+          <span className="text-slate-400">{enabledCount} provider{enabledCount !== 1 ? 's' : ''}</span>
+        </div>
+        {activeSkillIds.length > 0 && (
+          <div className="flex items-center gap-1">
+            <Sparkles size={10} className="text-blue-400" />
+            <span className="text-blue-400">{activeSkillIds.length} skill{activeSkillIds.length !== 1 ? 's' : ''}</span>
+          </div>
+        )}
+        {memories.length > 0 && (
+          <div className="flex items-center gap-1">
+            <Brain size={10} className="text-purple-400" />
+            <span className="text-purple-400">{memories.length}</span>
+          </div>
+        )}
+      </div>
+
       {/* Nav */}
-      <nav className="flex-1 px-2 py-4 space-y-1">
+      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
@@ -75,8 +111,49 @@ export const Sidebar: React.FC = () => {
                 {starredCount}
               </span>
             )}
+            {label === 'Skills' && activeSkillIds.length > 0 && (
+              <span className="ml-auto bg-blue-700 text-blue-200 text-xs rounded-full px-1.5 py-0.5">
+                {activeSkillIds.length}
+              </span>
+            )}
+            {label === 'Memory' && memories.length > 0 && (
+              <span className="ml-auto bg-purple-800 text-purple-200 text-xs rounded-full px-1.5 py-0.5">
+                {memories.length}
+              </span>
+            )}
           </NavLink>
         ))}
+
+        {/* Recent chats */}
+        {recentChats.length > 0 && (
+          <div className="pt-2">
+            <button
+              onClick={() => setShowRecentChats((v) => !v)}
+              className="flex items-center justify-between w-full px-3 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <span className="font-semibold uppercase tracking-wide">Recent Chats</span>
+              {showRecentChats ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+            {showRecentChats && (
+              <div className="space-y-0.5 mt-1">
+                {recentChats.map((conv) => (
+                  <button
+                    key={conv.id}
+                    onClick={() => {
+                      setActiveConversation(conv.id);
+                      setMobileOpen(false);
+                      navigate('/');
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-800 transition-colors truncate"
+                    title={conv.title}
+                  >
+                    {conv.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Footer */}

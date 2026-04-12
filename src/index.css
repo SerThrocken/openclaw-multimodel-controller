@@ -69,3 +69,29 @@ main > * { animation: fade-in 0.18s ease-out; }
 
 /* ── Smooth panel bg ─────────────────────────────────────────── */
 .bg-slate-750 { background-color: #1c2433; }
+
+/* Swipe/slide animations */
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slide-in-bottom {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-slide-in-left { animation: slide-in-left 0.25s ease-out; }
+.animate-slide-in-bottom { animation: slide-in-bottom 0.3s ease-out; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-gradient { 
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease infinite;
+}

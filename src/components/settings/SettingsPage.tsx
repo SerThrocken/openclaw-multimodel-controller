@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useStore } from '../../store';
-import { Info, Trash2, Plus, Lock } from 'lucide-react';
+import { Info, Trash2, Plus, Lock, Brain, Sparkles } from 'lucide-react';
 import { PATREON_URL } from '../../constants';
 import { useToast } from '../../context/ToastContext';
+import { startPatreonOAuth, checkProStatus } from '../../providers/patreon-oauth';
 
 const THEMES = [
   { id: 'dark', label: 'Dark', dot: '#1e293b', proOnly: false },
@@ -36,11 +38,15 @@ export const SettingsPage: React.FC = () => {
     systemPromptPresets,
     addPreset,
     deletePreset,
+    memories,
+    removeMemory,
   } = useStore();
 
+  const navigate = useNavigate();
   const [showAddPreset, setShowAddPreset] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [presetPrompt, setPresetPrompt] = useState('');
+  const [patreonLoading, setPatreonLoading] = useState(false);
   const toast = useToast();
 
   const stats = {
@@ -59,6 +65,26 @@ export const SettingsPage: React.FC = () => {
   };
 
   const canAddPreset = settings.isPro || systemPromptPresets.length < 1;
+
+  const handlePatreonConnect = async (isCreator = false) => {
+    setPatreonLoading(true);
+    try {
+      await startPatreonOAuth(isCreator);
+      const status = await checkProStatus();
+      if (status.isPro) {
+        updateSettings({ isPro: true, patreonConnected: true, patreonName: status.name });
+        toast.success(`🌟 Pro activated! Welcome, ${status.name || 'supporter'}!`);
+      } else {
+        const proStatus = await checkProStatus();
+        updateSettings({ patreonConnected: true, patreonName: proStatus.name });
+        toast.success('Connected to Patreon!');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Patreon connection failed.');
+    } finally {
+      setPatreonLoading(false);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -365,6 +391,93 @@ export const SettingsPage: React.FC = () => {
               <p className="text-slate-500 text-xs mt-1">{stats.conversations} chats · {stats.messages} messages</p>
             </div>
           )}
+        </section>
+
+        {/* Patreon OAuth */}
+        <section>
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Patreon</h2>
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-orange-400 text-lg">❤</span>
+              <div>
+                <p className="text-white text-sm font-medium">Connect with Patreon</p>
+                <p className="text-slate-400 text-xs mt-0.5">
+                  {settings.patreonConnected
+                    ? `Connected as ${settings.patreonName || 'Patreon user'}`
+                    : 'Not connected'}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => handlePatreonConnect(false)}
+                disabled={patreonLoading}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+              >
+                {patreonLoading ? 'Connecting…' : '❤ Connect with Patreon'}
+              </button>
+              <button
+                onClick={() => handlePatreonConnect(true)}
+                disabled={patreonLoading}
+                className="px-3 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 text-xs rounded-lg transition-colors"
+              >
+                I am the creator/developer
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Memory Bank */}
+        <section>
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Memory Bank</h2>
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Brain size={16} className="text-purple-400" />
+                <span className="text-white text-sm">{memories.length} memories saved</span>
+              </div>
+              <button
+                onClick={() => navigate('/memory')}
+                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-lg transition-colors"
+              >
+                Open Memory Bank →
+              </button>
+            </div>
+            {memories.length > 0 && (
+              <button
+                onClick={() => {
+                  if (confirm('Clear all memories? This cannot be undone.')) {
+                    memories.forEach((m) => removeMemory(m.id));
+                    toast.success('All memories cleared.');
+                  }
+                }}
+                className="text-xs text-red-400 hover:text-red-300 transition-colors"
+              >
+                Clear all memories
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* Skills */}
+        <section>
+          <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wide mb-4">Skills</h2>
+          <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={16} className="text-blue-400" />
+                <span className="text-white text-sm">
+                  {(settings.activeSkillIds || []).length} active skills
+                </span>
+              </div>
+              <button
+                onClick={() => navigate('/skills')}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
+              >
+                Browse Skills →
+              </button>
+            </div>
+          </div>
         </section>
 
         {/* About */}

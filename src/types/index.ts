@@ -69,6 +69,10 @@ export interface AppSettings {
   ttsCharUsedToday: number;   // TTS chars spoken today (free tier)
   ttsUsageDate: string;       // ISO date string for daily reset
   googleClientId?: string;    // Google OAuth Client ID for Gemini sign-in
+  patreonClientId?: string;
+  patreonConnected?: boolean;
+  patreonName?: string;
+  activeSkillIds: string[];
 }
 
 export interface ProviderTemplate {
@@ -92,4 +96,25 @@ export interface SendMessageOptions {
   messages: Message[];
   onChunk?: (chunk: string) => void;
   signal?: AbortSignal;
+}
+
+export interface Memory {
+  id: string;
+  content: string;
+  label?: string;
+  source?: string; // conversation id if saved from chat
+  createdAt: string;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  systemPrompt: string;
+  icon: string;
+  tags: string[];
+  provider: 'all' | ProviderType;
+  isCustom?: boolean;
+  createdAt?: string;
 }

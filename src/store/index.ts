@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import type { AIProvider, Conversation, Message, AppSettings, SystemPromptPreset } from '../types';
+import type { AIProvider, Conversation, Message, AppSettings, SystemPromptPreset, Memory, Skill } from '../types';
 import { FREE_VISION_LIMIT, FREE_TTS_CHAR_LIMIT } from '../constants';
 
 interface AppStore {
@@ -46,6 +46,17 @@ interface AppStore {
   // TTS usage tracking
   canUseTTS: (chars: number) => boolean;
   recordTTSUsage: (chars: number) => void;
+
+  // Memories
+  memories: Memory[];
+  addMemory: (content: string, label?: string, source?: string) => Memory;
+  removeMemory: (id: string) => void;
+  updateMemory: (id: string, updates: Partial<Memory>) => void;
+
+  // Custom Skills
+  customSkills: Skill[];
+  addCustomSkill: (skill: Omit<Skill, 'id' | 'createdAt'>) => Skill;
+  removeCustomSkill: (id: string) => void;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -60,6 +71,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   visionUsageDate: '',
   ttsCharUsedToday: 0,
   ttsUsageDate: '',
+  activeSkillIds: [],
 };
 
 export const useStore = create<AppStore>()(
@@ -71,6 +83,8 @@ export const useStore = create<AppStore>()(
       activeChatProviderId: null,
       settings: DEFAULT_SETTINGS,
       systemPromptPresets: [],
+      memories: [],
+      customSkills: [],
 
       addProvider: (providerData) => {
         const now = new Date().toISOString();
@@ -265,6 +279,43 @@ export const useStore = create<AppStore>()(
           set((state) => ({ settings: { ...state.settings, ttsCharUsedToday: state.settings.ttsCharUsedToday + chars } }));
         }
       },
+
+      addMemory: (content, label, source) => {
+        const memory: Memory = {
+          id: uuidv4(),
+          content,
+          label,
+          source,
+          createdAt: new Date().toISOString(),
+        };
+        set((state) => ({ memories: [...state.memories, memory] }));
+        return memory;
+      },
+
+      removeMemory: (id) => {
+        set((state) => ({ memories: state.memories.filter((m) => m.id !== id) }));
+      },
+
+      updateMemory: (id, updates) => {
+        set((state) => ({
+          memories: state.memories.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+        }));
+      },
+
+      addCustomSkill: (skillData) => {
+        const skill: Skill = {
+          ...skillData,
+          id: uuidv4(),
+          isCustom: true,
+          createdAt: new Date().toISOString(),
+        };
+        set((state) => ({ customSkills: [...state.customSkills, skill] }));
+        return skill;
+      },
+
+      removeCustomSkill: (id) => {
+        set((state) => ({ customSkills: state.customSkills.filter((s) => s.id !== id) }));
+      },
     }),
     {
       name: 'openclaw-storage',
@@ -274,6 +325,8 @@ export const useStore = create<AppStore>()(
         settings: state.settings,
         activeChatProviderId: state.activeChatProviderId,
         systemPromptPresets: state.systemPromptPresets,
+        memories: state.memories,
+        customSkills: state.customSkills,
       }),
     },
   ),
