@@ -5,6 +5,7 @@
  */
 
 const BACKEND_BASE = 'http://localhost:7860';
+const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
 export async function startPatreonOAuth(isCreator = false): Promise<void> {
   try {
@@ -29,7 +30,7 @@ export async function startPatreonOAuth(isCreator = false): Promise<void> {
       setTimeout(() => {
         window.removeEventListener('message', onMsg);
         reject(new Error('OAuth timed out.'));
-      }, 5 * 60 * 1000);
+      }, OAUTH_TIMEOUT_MS);
     });
   } catch (e) {
     // Backend not running – open Patreon directly

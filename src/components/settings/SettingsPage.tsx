@@ -75,8 +75,7 @@ export const SettingsPage: React.FC = () => {
         updateSettings({ isPro: true, patreonConnected: true, patreonName: status.name });
         toast.success(`🌟 Pro activated! Welcome, ${status.name || 'supporter'}!`);
       } else {
-        const proStatus = await checkProStatus();
-        updateSettings({ patreonConnected: true, patreonName: proStatus.name });
+        updateSettings({ patreonConnected: true, patreonName: status.name });
         toast.success('Connected to Patreon!');
       }
     } catch (err) {

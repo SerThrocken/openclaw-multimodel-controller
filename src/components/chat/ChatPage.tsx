@@ -16,6 +16,18 @@ import { useTTS } from '../../hooks/useTTS';
 import { FREE_TTS_CHAR_LIMIT, PATREON_URL } from '../../constants';
 import { BUILTIN_SKILLS } from '../../providers/skills-library';
 
+const SUGGESTION_CHIPS = [
+  'What can you do?',
+  'Write me a poem',
+  'Help me debug code',
+  'Explain a concept',
+  'Summarize a topic',
+  'Plan my day',
+  'Give me ideas',
+];
+
+const MEMORY_SAVED_FEEDBACK_MS = 2000;
+
 const MarkdownText: React.FC<{ content: string }> = ({ content }) => {
   const lines = content.split('\n');
   return (
@@ -356,15 +368,7 @@ export const ChatPage: React.FC = () => {
               </div>
               {/* Suggestion chips */}
               <div className="flex gap-2 overflow-x-auto pb-1 max-w-lg w-full justify-start sm:justify-center">
-                {[
-                  'What can you do?',
-                  'Write me a poem',
-                  'Help me debug code',
-                  'Explain a concept',
-                  'Summarize a topic',
-                  'Plan my day',
-                  'Give me ideas',
-                ].map((suggestion) => (
+                {SUGGESTION_CHIPS.map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => setInput(suggestion)}
@@ -588,7 +592,7 @@ const MessageBubble: React.FC<{
   const handleSaveMemory = () => {
     onSaveMemory?.(message.content);
     setMemorySaved(true);
-    setTimeout(() => setMemorySaved(false), 2000);
+    setTimeout(() => setMemorySaved(false), MEMORY_SAVED_FEEDBACK_MS);
   };
 
   return (

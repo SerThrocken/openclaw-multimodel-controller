@@ -18,6 +18,8 @@ import { useStore } from '../../store';
 import { useState } from 'react';
 import { PATREON_URL } from '../../constants';
 
+const MAX_RECENT_CHATS = 5;
+
 export const Sidebar: React.FC = () => {
   const providers = useStore((s) => s.providers);
   const conversations = useStore((s) => s.conversations);
@@ -38,7 +40,7 @@ export const Sidebar: React.FC = () => {
 
   const recentChats = [...conversations]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 5);
+    .slice(0, MAX_RECENT_CHATS);
 
   const navItems = [
     { to: '/', icon: MessageSquare, label: 'Chat' },
